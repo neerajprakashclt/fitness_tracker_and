@@ -90,7 +90,7 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
                     DetailScreen(vm, fmt, streetMap) { nav.popBackStack() }
                 }
                 composable(Routes.LOG) {
-                    val vm: LogViewModel = viewModel(factory = viewModelFactory { initializer { LogViewModel(app.log) } })
+                    val vm: LogViewModel = viewModel(factory = viewModelFactory { initializer { LogViewModel(app.log, app.analytics) } })
                     LogScreen(vm, fmt) { nav.navigate(Routes.detail(it)) }
                 }
                 composable(Routes.TRAINING) {

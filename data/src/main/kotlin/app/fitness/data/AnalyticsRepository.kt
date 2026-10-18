@@ -14,6 +14,7 @@ import app.fitness.core.Poster
 import app.fitness.core.PosterRun
 import app.fitness.core.Predictions
 import app.fitness.core.RacePredictions
+import app.fitness.core.RecordSeries
 import app.fitness.core.RouteProgress
 import app.fitness.core.RouteReport
 import app.fitness.core.RunClass
@@ -319,6 +320,9 @@ class AnalyticsRepository(private val db: FitnessDatabase, private val repo: Act
         }
         Poster.data(runs, Volume.recordsTimeline(snap.entries), LocalDate.now()).toString()
     }
+
+    /** Running personal bests over the standard distances: each time one was beaten, oldest first. */
+    suspend fun records(): List<RecordSeries> = withContext(Dispatchers.Default) { Volume.recordsTimeline(snapshot().entries) }
 
     /** Sports that have any best-effort data, most frequent first. */
     suspend fun curveSports(): List<String> = dao.bestSports(EMPTY_BESTS).map { it.sport }

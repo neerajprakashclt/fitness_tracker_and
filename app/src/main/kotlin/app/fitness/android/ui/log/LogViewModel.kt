@@ -6,6 +6,7 @@ import app.fitness.core.Goal
 import app.fitness.core.LogActivity
 import app.fitness.core.LogMetric
 import app.fitness.core.Period
+import app.fitness.core.RecordSeries
 import app.fitness.core.WeeklyZones
 import app.fitness.data.AnalyticsRepository
 import app.fitness.data.LogRepository
@@ -22,11 +23,19 @@ import kotlinx.coroutines.launch
 
 /** The Log tab's data: every activity (re-read when activities change), the goals, and the sports to filter by. */
 @OptIn(FlowPreview::class)
-class LogViewModel(private val log: LogRepository) : ViewModel() {
+class LogViewModel(private val log: LogRepository, private val analytics: AnalyticsRepository) : ViewModel() {
     // An import writes many rows; wait for it to settle rather than redraw for each.
     val rows: StateFlow<List<LogActivity>?> = log.rows().debounce(300).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val goals: StateFlow<List<Goal>> = log.goals().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val sports: StateFlow<List<SportCount>> = log.sports().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Running personal bests, for the year in review; reloaded when the activities change. */
+    private val _records = MutableStateFlow<List<RecordSeries>>(emptyList())
+    val records: StateFlow<List<RecordSeries>> = _records
+
+    init {
+        viewModelScope.launch { log.rows().debounce(500).collect { _records.value = analytics.records() } }
+    }
 
     fun addGoal(sport: String?, metric: LogMetric, period: Period, target: Double) {
         viewModelScope.launch { log.addGoal(sport, metric, period, target) }

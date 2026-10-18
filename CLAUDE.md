@@ -42,12 +42,16 @@ Strava export's top folder is imported) fills gaps by matching file names, and t
 terrarium tiles cached on the phone, the PC's tuned 25 m / no smoothing / 2 m method) covers new files with GPS and no
 altitude and, on request, existing ones. Both are kept in `elevation_overrides` / `terrain_elevation` (no foreign key: a
 rebuild replaces activity rows) and re-applied after a rebuild, and travel in a backup (`elevation.json`). The file's own
-altitude always wins. Next: phase 4 (heatmap), which the user does not need for now, or the other PC
+altitude always wins. The Fitness part of the Training tab also shows load safety (acute:chronic ratio, fitness ramp,
+monotony, warnings, a 180-day chart), and the Log tab has a Review part: year in review (totals, change on the year
+before, highlights, personal bests set that year) and consistency (weekly streaks, longest break). Stopping point agreed
+with the user (2026-10-18): nothing is in progress. Not built, all optional: the heatmap (phase 4), splits, cadence,
+weekly volume, other phase 7 extras, sync with the PC. Next, if asked: phase 4 (heatmap), which the user does not need for now, or the other PC
 analytics (load safety, volume and year in review, splits, cadence) and the phase 7 extras. Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
 terrain elevation, phase 7). Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures and oracles made from the PC app
 are in `seed/` (`golden/`, `pc-activities.json`; gitignored).
 
-Code map: `:core` `Resample`, `TrainingLoad` (metrics, thresholds, load, daily series), `Curves` (bests, aggregation), `RunProfile`, `CriticalSpeed` (+ `Zones`), `RunTypes`, `TrainingLog` (totals, calendar, year over year, goals, weekly zones), `Efficiency`, `RunningReports` (predictions, critical-speed trend and zones, weekly mix, route progress), `RouteMatch`, `Places`, `Poster` (payload) and `Volume` (records, streaks); `:data` `AnalyticsRepository` (versioned metrics/bests/daily_load tables, settings; refreshed by a background job at start-up and after imports, deletes and threshold edits); `:core` `StravaCsv`, `Terrain` (profile, terrarium tiles), `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
+Code map: `:core` `Resample`, `TrainingLoad` (metrics, thresholds, load, daily series), `Curves` (bests, aggregation), `RunProfile`, `CriticalSpeed` (+ `Zones`), `RunTypes`, `TrainingLog` (totals, calendar, year over year, goals, weekly zones), `LoadSafety`, `YearInReview` (consistency, year review), `Efficiency`, `RunningReports` (predictions, critical-speed trend and zones, weekly mix, route progress), `RouteMatch`, `Places`, `Poster` (payload) and `Volume` (records, streaks); `:data` `AnalyticsRepository` (versioned metrics/bests/daily_load tables, settings; refreshed by a background job at start-up and after imports, deletes and threshold edits); `:core` `StravaCsv`, `Terrain` (profile, terrarium tiles), `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
 `Similar` (duplicate / same run / import, pure and shared with the tests), `Common` (moving time and the other PC helpers),
 `Routes`, `StreamCodec`, `Format`; `:data` `FitnessDatabase` (version 2, with a migration), `ActivityRepository`
 (import, rebuild, derived data), `FolderImporter`, `BackupManager`, `ImportRunner` (progress state); `:app`

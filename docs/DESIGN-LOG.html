@@ -674,7 +674,25 @@
     </dl>
   </div>
   <p>Decisions. (1) Terrain look-up is off by default and never touches existing activities unless asked, as on the PC. (2) Only the tile source is ported; the PC's Open-Meteo (over-counted by about 30%) and local SRTM files are not. (3) The look-up gives up after 5 failures in a row so an import with no connection is not slowed by timeouts; turning the option off and on resets it.</p>
-  <p>Next: phase 4 (heatmap) when wanted, or the other PC analytics (load safety, volume and year in review, splits, cadence).</p>
+
+  <h3>Load safety and year in review <span class="entry-date">2026-10-18</span></h3>
+  <p><code>LoadSafety</code> ports <code>load_safety.py</code> (acute:chronic ratio with a floored four-week base, the seven-day change in fitness, Foster's monotony and strain, rest days, the warnings and the band) and <code>YearInReview</code> ports the consistency and year-review parts of <code>volume.py</code>.
+     <strong>Load safety</strong> is a card on the Fitness part of the Training tab: today's ratio and its band (optimal, caution, high, low), the fitness change, monotony and rest days, any warnings in words, and a 180-day chart of the ratio with the 0.8 and 1.3 lines, with the PC's wording that these are rules of thumb and not medical advice.
+     <strong>Review</strong> is a new part of the Log tab: pick a sport and a year; totals (distance, time, activities, climb, average pace, active weeks), the change on the year before, the longest activity, biggest week and month, favourite weekday, the personal bests set that year (tap one to open it), and a consistency card (current and longest streak of weeks with an activity, the longest break, activities a week lately, active weeks of the last 52).
+     No new tables: both are computed from the daily load and the activities.</p>
+  <h3>Load safety and review results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Load safety</td><td><span class="tag done">pass</span></td><td>The reading for the fixture's day, and all 180 days of ratio, change, monotony, strain, rest days, weekly load and four-week average, equal the PC's; the warning list is equal (it was empty). A synthetic spike exercises the warning texts, since the real history only ever reads "optimal".</td></tr>
+    <tr><td>Consistency</td><td><span class="tag done">pass</span></td><td>Streaks (43 current, 97 longest, with dates), the longest break (901 days, with dates), days since the last run, runs a week, active weeks of 52.</td></tr>
+    <tr><td>Year in review, 2026 and 2025</td><td><span class="tag done">pass</span></td><td>Totals including climb and the count without climb, previous year, the three changes, active weeks, longest run, biggest week and month, favourite weekday, personal bests set.</td></tr>
+    <tr><td>On the phone</td><td><span class="tag done">pass</span></td><td>Both screens checked. The 2026 review reads 452.44 mi in 134 runs, the PC's 728,136 m; the load card reads "Caution, 1.35x" today, which differs from the fixture only because the data has moved on since it was exported.</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) The weekly volume series the PC also has is not ported: the Log tab's weekly totals show the same distance by week. (2) The review works for any sport, as the PC's function does, with personal bests only for running (the PC's best-effort distances are running distances). (3) Where two weeks or days tie, the first one wins, as Python's <code>max</code> does.</p>
+
+  <h3>Where the project stands</h3>
+  <p>Built and checked against the PC app on the user's 14 years: import (FIT, GPX, TCX; folder, picker, share; same-run detection; rebuild; backup and restore), the feed and activity screens, the theme system, training load and fitness, best efforts and curves, thresholds, heart-rate and pace zones, critical speed and predictions, run types, efficiency, routes, places, the running-life poster, the training log, goals, year in review and load safety, elevation from Strava's CSV and terrain data, and the icon. The user chose to stop here.
+     <strong>Left, all optional and none started:</strong> the heatmap (phase 4); splits and cadence; the weekly volume view; other extras; syncing with the PC app; Health Connect. The three activities whose files were imported twice under different names, and the 174 with a track and no climb until the terrain look-up is run, are the only known gaps in what is built.</p>
 
   <!-- LOG-ENTRIES-END -->
 </section>

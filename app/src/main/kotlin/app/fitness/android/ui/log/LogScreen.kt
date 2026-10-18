@@ -62,7 +62,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
-private enum class LogTab(val label: String) { TOTALS("Totals"), CALENDAR("Calendar"), YEARS("Years"), GOALS("Goals") }
+private enum class LogTab(val label: String) { TOTALS("Totals"), CALENDAR("Calendar"), YEARS("Years"), REVIEW("Review"), GOALS("Goals") }
 
 private val weekLabel = DateTimeFormatter.ofPattern("d MMM yy")
 private val monthLabel = DateTimeFormatter.ofPattern("MMM yyyy")
@@ -75,6 +75,7 @@ fun LogScreen(vm: LogViewModel, fmt: Formatter, onOpen: (String) -> Unit) {
     val rows by vm.rows.collectAsStateWithLifecycle()
     val goals by vm.goals.collectAsStateWithLifecycle()
     val sports by vm.sports.collectAsStateWithLifecycle()
+    val records by vm.records.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(LogTab.TOTALS) }
     var sport by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -88,7 +89,7 @@ fun LogScreen(vm: LogViewModel, fmt: Formatter, onOpen: (String) -> Unit) {
             modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
         )
         SegmentedControl(LogTab.entries, tab, { it.label }, { tab = it })
-        if (tab != LogTab.GOALS) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (tab != LogTab.GOALS && tab != LogTab.REVIEW) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilterPill("All", sport == null, { sport = null })
             sports.forEach { FilterPill(Labels.sportName(it.sport), sport == it.sport, { sport = it.sport }) }
         }
@@ -99,6 +100,7 @@ fun LogScreen(vm: LogViewModel, fmt: Formatter, onOpen: (String) -> Unit) {
             LogTab.TOTALS -> TotalsView(all, sport, fmt)
             LogTab.CALENDAR -> CalendarView(all, sport, fmt, onOpen)
             LogTab.YEARS -> YearsView(all, sport, fmt)
+            LogTab.REVIEW -> ReviewView(all, sports.map { it.sport }, records, fmt, onOpen)
             LogTab.GOALS -> GoalsView(all, goals, sports.map { it.sport }, fmt, vm)
         }
         Box(Modifier.padding(bottom = 24.dp))

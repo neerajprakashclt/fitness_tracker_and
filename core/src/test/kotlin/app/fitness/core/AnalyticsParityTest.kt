@@ -386,6 +386,55 @@ class AnalyticsParityTest {
         bad.check("longest streak", want.obj("consistency")["longest_streak_weeks"].num()!!.toInt() == Volume.longestStreakWeeks(running.map { it.date })) {
             "pc=${want.obj("consistency")["longest_streak_weeks"].num()} kotlin=${Volume.longestStreakWeeks(running.map { it.date })}" }
 
+        // Load safety, consistency and the year in review.
+        val wantSafety = want.obj("load_safety")
+        val safety = LoadSafety.analysis(series)
+        if (safety == null) bad.items += "no load safety report" else {
+            val wc = wantSafety.obj("current")
+            fun same(w: JsonObject, g: SafetyDay) = w["date"].str() == g.date.toString() && close(w["load"].num(), g.load, 1e-9, 1e-9) && close(w["acwr"].num(), g.acwr, 1e-9, 1e-9) &&
+                close(w["ramp"].num(), g.ramp, 1e-9, 1e-9) && close(w["monotony"].num(), g.monotony, 1e-9, 1e-9) && close(w["strain"].num(), g.strain, 1e-9, 1e-7) &&
+                w["rest_days"].num()?.toInt() == g.restDays && close(w["week_load"].num(), g.weekLoad, 1e-9, 1e-9) && close(w["chronic_daily"].num(), g.chronicDaily, 1e-9, 1e-9)
+            bad.check("safety now", same(wc, safety.now) && wc["band"].str() == safety.now.band) { "pc=$wc kotlin=${safety.now.acwr}/${safety.now.band}" }
+            val ws = (wantSafety["series"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            bad.check("safety series length", ws.size == safety.series.size) { "pc=${ws.size} kotlin=${safety.series.size}" }
+            for ((a, b) in ws.zip(safety.series)) bad.check("safety ${a["date"].str()}", same(a, b)) { "pc=$a kotlin=${b.acwr}/${b.ramp}/${b.monotony}" }
+            val ww = (wantSafety["warnings"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            bad.check("safety warnings", ww.map { it["code"].str() to it["message"].str() } == safety.warnings.map { it.code to it.message }) { "pc=$ww kotlin=${safety.warnings.map { it.code }}" }
+        }
+        // A synthetic spike, so the warning texts are exercised too (the real history only ever says "optimal").
+        run {
+            val spike = (0 until 40).map { i -> DayLoad(LocalDate.parse("2026-01-01").plusDays(i.toLong()), if (i >= 33) 160.0 else 10.0, 20.0 + (if (i >= 33) (i - 32) * 4.0 else 0.0), 0.0, 0.0) }
+            val r = LoadSafety.analysis(spike)!!
+            bad.check("spike warnings", r.warnings.map { it.code } == listOf("acwr_spike", "ramp_fast", "no_rest")) { "got ${r.warnings.map { it.code }}" }
+        }
+
+        val runningLog = logRows.filter { it.sport == "running" }
+        val cons = YearInReview.consistency(runningLog, today)
+        val wcn = want.obj("consistency")
+        bad.check("consistency", cons != null && cons.currentStreakWeeks == wcn["current_streak_weeks"].num()!!.toInt() && cons.longestStreakWeeks == wcn["longest_streak_weeks"].num()!!.toInt() &&
+            cons.longestStreakFrom.toString() == wcn["longest_streak_from"].str() && cons.longestStreakTo.toString() == wcn["longest_streak_to"].str() &&
+            cons.longestGapDays == wcn["longest_gap_days"].num()!!.toInt() && cons.longestGapFrom.toString() == wcn["longest_gap_from"].str() && cons.longestGapTo.toString() == wcn["longest_gap_to"].str() &&
+            cons.daysSinceLast == wcn["days_since_last"].num()!!.toLong() && close(cons.perWeekRecent, wcn["runs_per_week_recent"].num()) && cons.activeWeeksLast52 == wcn["active_weeks_last_52"].num()!!.toInt()) {
+            "pc=$wcn kotlin=${cons?.currentStreakWeeks}/${cons?.longestStreakWeeks}/${cons?.longestGapDays}" }
+        for ((yearKey, w) in want.obj("year_review")) {
+            val wj = w.jsonObject
+            val g = YearInReview.review(runningLog, yearKey.toInt(), timeline)
+            if (g == null) { bad.items += "no review for $yearKey"; continue }
+            val wp = wj["previous"]
+            bad.check("review $yearKey totals", wj["runs"].num()!!.toInt() == g.totals.runs && close(wj["distance"].num(), g.totals.distance, 1e-9, 1e-6) && close(wj["duration"].num(), g.totals.duration, 1e-9, 1e-6) &&
+                close(wj["elevation"].num(), g.totals.elevation, 1e-9, 1e-6) && wj["elevation_missing"].num()!!.toInt() == g.totals.elevationMissing && close(wj["avg_speed"].num(), g.totals.avgSpeed, 1e-9, 1e-9)) { "pc=$wj" }
+            bad.check("review $yearKey previous", (wp is JsonObject) == (g.previous != null) && (wp !is JsonObject || (wp["runs"].num()!!.toInt() == g.previous!!.runs && close(wp["distance"].num(), g.previous!!.distance, 1e-9, 1e-6)))) { "differs" }
+            val wc = wj.obj("change")
+            bad.check("review $yearKey change", wc.keys == g.change.keys && wc.all { (k, v) -> close(v.num(), g.change[k], 1e-9, 1e-9) }) { "pc=$wc kotlin=${g.change}" }
+            bad.check("review $yearKey highlights", wj["active_weeks"].num()!!.toInt() == g.activeWeeks && wj.obj("longest_run")["date"].str() == g.longestRun.date.toString() && close(wj.obj("longest_run")["distance"].num(), g.longestRun.distance) &&
+                wj.obj("biggest_week")["week_start"].str() == g.biggestWeekStart.toString() && close(wj.obj("biggest_week")["distance"].num(), g.biggestWeekDistance, 1e-9, 1e-6) &&
+                wj.obj("biggest_month")["month"].num()!!.toInt() == g.biggestMonth.value && close(wj.obj("biggest_month")["distance"].num(), g.biggestMonthDistance, 1e-9, 1e-6) &&
+                wj["favourite_weekday"].num()!!.toInt() == g.favouriteWeekday.value - 1) { "pc=${wj.obj("longest_run")} ${wj.obj("biggest_week")} kotlin=${g.longestRun.date} ${g.biggestWeekStart}" }
+            val wb = (wj["personal_bests_set"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            bad.check("review $yearKey bests", wb.map { it["name"].str() to it["date"].str() } == g.personalBestsSet.map { it.first to it.second.date.toString() }) { "pc=$wb kotlin=${g.personalBestsSet.map { it.first }}" }
+        }
+        bad.check("review years", want.obj("year_review").keys == YearInReview.years(runningLog).take(2).map { it.toString() }.toSet()) { "differs" }
+
         println("days ${series.size}; mismatches: ${bad.items.size}")
         bad.items.take(60).forEach { println("  MISMATCH $it") }
         assertTrue(bad.items.isEmpty(), "${bad.items.size} mismatches, first: ${bad.items.firstOrNull()}")

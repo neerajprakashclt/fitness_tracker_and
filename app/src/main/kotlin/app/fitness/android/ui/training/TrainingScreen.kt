@@ -115,6 +115,7 @@ private fun FitnessTab(vm: TrainingViewModel) {
         ThemedDivider(Modifier.padding(vertical = 4.dp))
         LinesChart("Form", listOf(ChartLine("Form", xs, DoubleArray(shown.size) { shown[it].tsb }, t.chart.elevation, filled = true)), dateLabel, { "%.0f".format(it) }, height = 140)
     }
+    LoadSafetyCard(daily)
     Text(
         "Load scores are on one scale (100 is an hour at threshold). Fitness and fatigue are 42-day and 7-day averages of it; form is yesterday's fitness minus fatigue.",
         color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 4.dp),
