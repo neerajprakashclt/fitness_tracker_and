@@ -1,0 +1,15 @@
+seed/
+*.jks
+*.keystore
+local.properties
+build/
+.gradle/
+app/src/debug/assets/
+seed/
+.idea/
+.kotlin/
+hs_err_pid*.log
+replay_pid*.log
+bin/
+docs/screens/spike-heatmap.png
+docs/screens/spike-activity*.png

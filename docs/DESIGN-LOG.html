@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fitness Tracker for Android: Design and Build Log</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1f2933; --muted: #6b7785; --line: #e1e5ea;
+    --accent: #e8590c; --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --code: #f1f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171a; --card: #1d2125; --text: #e6e9ec; --muted: #98a2ad; --line: #2c3238;
+            --accent: #ff8a4c; --ok: #69db7c; --warn: #fcc419; --bad: #ff8787; --code: #262b30; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 28px 16px 8px; max-width: 920px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 1.7rem; }
+  .sub { color: var(--muted); margin: 0; }
+  main { max-width: 920px; margin: 0 auto; padding: 8px 16px 64px; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+  nav a { padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--text);
+          text-decoration: none; font-size: .9rem; background: var(--card); }
+  nav a:hover { border-color: var(--accent); }
+  section.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+                 padding: 18px 20px; margin: 16px 0; }
+  h2 { margin: 0 0 8px; font-size: 1.25rem; }
+  h3 { margin: 18px 0 6px; font-size: 1.05rem; }
+  p { margin: 8px 0; }
+  code, pre { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .88em; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .93rem; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .78rem; font-weight: 600;
+         border: 1px solid currentColor; vertical-align: middle; }
+  .done { color: var(--ok); } .active { color: var(--accent); } .todo { color: var(--muted); }
+  .issue { border-left: 4px solid var(--warn); padding: 8px 14px; margin: 12px 0; background: var(--code);
+           border-radius: 0 8px 8px 0; }
+  .issue.fixed { border-left-color: var(--ok); } .issue.open { border-left-color: var(--bad); }
+  .issue h4 { margin: 0 0 4px; font-size: .98rem; }
+  .issue dl { margin: 0; } .issue dt { font-weight: 600; color: var(--muted); font-size: .8rem;
+                                      text-transform: uppercase; letter-spacing: .04em; margin-top: 6px; }
+  .issue dd { margin: 0; }
+  .entry-date { color: var(--muted); font-size: .85rem; }
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 12px 0; }
+  .th { border-radius: 12px; padding: 12px; border: 1px solid var(--line); }
+  .th-name { font: 600 .78rem system-ui, sans-serif; margin-bottom: 8px; opacity: .85; }
+  .th-card { padding: 10px 12px; background: var(--c-surface); color: var(--c-text); border: var(--c-border); border-radius: var(--c-radius);
+             font-family: var(--c-font); box-shadow: var(--c-shadow); }
+  .th-card b { display: block; font-size: 1rem; color: var(--c-title); }
+  .th-card > span { display: block; font-size: .75rem; color: var(--c-muted); margin-bottom: 8px; }
+  .th-stats { display: flex; gap: 14px; }
+  .th-stats div { font-weight: 700; font-size: .95rem; color: var(--c-num); }
+  .th-stats i { display: block; font-style: normal; font-weight: 400; font-size: .68rem; color: var(--c-muted); }
+  .th-name { color: var(--c-text); }
+  .th-strava { background: #f2f2f2; --c-surface:#fff; --c-text:#242428; --c-title:#242428; --c-muted:#6d6d78; --c-num:#fc4c02; --c-radius:12px; --c-border:0; --c-shadow:0 1px 3px rgba(0,0,0,.18); --c-font:system-ui,sans-serif; }
+  .th-ios { background: #f2f2f7; --c-surface:#fff; --c-text:#000; --c-title:#000; --c-muted:#8a8a8e; --c-num:#007aff; --c-radius:14px; --c-border:0; --c-shadow:none; --c-font:system-ui,-apple-system,sans-serif; }
+  .th-term { background: #000; --c-surface:#000; --c-text:#33ff66; --c-title:#33ff66; --c-muted:#1fa844; --c-num:#7dffa0; --c-radius:0; --c-border:1px solid #1fa844; --c-shadow:none; --c-font:ui-monospace,Consolas,monospace; }
+  .th-amber { background: #120a00; --c-surface:#120a00; --c-text:#ffb000; --c-title:#ffb000; --c-muted:#a86f00; --c-num:#ffd060; --c-radius:0; --c-border:1px solid #a86f00; --c-shadow:none; --c-font:ui-monospace,Consolas,monospace; }
+  .th-solar { background: #002b36; --c-surface:#002b36; --c-text:#93a1a1; --c-title:#b58900; --c-muted:#586e75; --c-num:#2aa198; --c-radius:0; --c-border:1px solid #073642; --c-shadow:none; --c-font:ui-monospace,Consolas,monospace; }
+  .th-gruv { background: #282828; --c-surface:#282828; --c-text:#ebdbb2; --c-title:#fabd2f; --c-muted:#a89984; --c-num:#b8bb26; --c-radius:0; --c-border:1px solid #504945; --c-shadow:none; --c-font:ui-monospace,Consolas,monospace; }
+  .th-nord { background: #2e3440; --c-surface:#2e3440; --c-text:#d8dee9; --c-title:#88c0d0; --c-muted:#7b88a1; --c-num:#a3be8c; --c-radius:0; --c-border:1px solid #4c566a; --c-shadow:none; --c-font:ui-monospace,Consolas,monospace; }
+  .th-drac { background: #282a36; --c-surface:#282a36; --c-text:#f8f8f2; --c-title:#bd93f9; --c-muted:#6272a4; --c-num:#50fa7b; --c-radius:0; --c-border:1px solid #44475a; --c-shadow:none; --c-font:ui-monospace,Consolas,monospace; }
+  footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 24px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fitness Tracker for Android: Design and Build Log</h1>
+  <p class="sub">A native, standalone, personal-use port of the Python Fitness Tracker. Target: Pixel 7, Android 17+, sideloaded.
+     This page is appended to as each stage is built: what was designed, what went wrong, how it was fixed.</p>
+  <nav>
+    <a href="#overview">Overview</a><a href="#architecture">Architecture</a><a href="#ui">UI and themes</a><a href="#stages">Stages</a>
+    <a href="#log">Build log</a><a href="#issues">Issue index</a><a href="#decisions">Decisions</a>
+  </nav>
+</header>
+<main>
+
+<section class="card" id="overview">
+  <h2>Overview</h2>
+  <p>The PC app is a FastAPI + SQLite web app. It imports FIT/GPX/TCX files, derives per-activity summaries,
+     and computes training analytics. The Android app does the same <em>on the phone</em>, with no server and no account.
+     The PC app is the reference: where the two disagree about how something is calculated, the PC code is right.</p>
+  <p>Full feature inventory and porting analysis: <code>docs/FEATURE-ANALYSIS.md</code> (13 sections). This page records
+     the design as it is realised and the problems met on the way.</p>
+</section>
+
+<section class="card" id="architecture">
+  <h2>Architecture</h2>
+  <table>
+    <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+    <tr><td><code>:core</code></td><td>Pure Kotlin/JVM: parsers, analytics, formatting</td><td>All ported logic lives here and is unit-tested on the JVM against golden fixtures made by the PC code.</td></tr>
+    <tr><td><code>:data</code></td><td>Room (SQLite), DAOs, repositories, raw-file archive, WorkManager</td><td>Schema mirrors the PC; identity is <code>file_hash</code> so a later sync is a mapping exercise.</td></tr>
+    <tr><td><code>:app</code></td><td>Jetpack Compose, Material 3, Navigation Compose, ViewModels</td><td>No logic in composables.</td></tr>
+    <tr><td>Charts / maps</td><td>Vico / MapLibre Native (OSM raster tiles)</td><td>Both proven in phase 0 on real data (activity charts with scrubber, stacked columns, duration curve, 140,886-point heatmap).</td></tr>
+    <tr><td>Stream storage</td><td>Gzipped JSON files in <code>filesDir/streams/&lt;file_hash&gt;.json.gz</code></td><td>Android reads database rows through a ~2 MB window (measured: 2,000 KB ok, 2,200 KB fails); files have no limit.</td></tr>
+  </table>
+  <h3>Two-layer analytics (carried over from the PC app)</h3>
+  <p><strong>Layer 1</strong>: per-activity summaries computed once from streams, stored, and versioned (metrics, best efforts, simplified routes, places).
+     <strong>Layer 2</strong>: cheap query-time analytics over Layer 1 (curves, zones, log, critical speed, run types, load safety, volume, route matching).
+     Changing a threshold re-runs only the scoring over stored summaries, never the streams.</p>
+  <h3>Verification approach</h3>
+  <p>The PC code generates "golden" JSON for real and synthetic files; the Kotlin port must reproduce it
+     (exact for integers and strings, tolerance for floats). Every PC constant is exported too, so drift is a failing test.</p>
+</section>
+
+<section class="card" id="ui">
+  <h2>UI and themes</h2>
+  <p><strong>Direction (2026-10-17):</strong> look and behave like Strava, with a theme switcher in Settings &gt; Appearance offering a Strava theme,
+     an iOS-style theme, and several Unix/terminal themes. The choice is stored on the device and applies to every screen, chart and map.</p>
+
+  <h3>Strava-style layout</h3>
+  <ul>
+    <li><strong>Bottom bar:</strong> Activities (feed), Fitness, Log, Running, More. (Strava's Record and Groups tabs do not apply: this app imports files and has no social features.)</li>
+    <li><strong>Feed card:</strong> sport icon, auto title ("Morning Run"), date and place (from the offline places feature), a stats row (distance, pace, time), and a route thumbnail drawn from the stored polyline on a plain canvas, so the feed makes no tile requests.</li>
+    <li><strong>Activity detail:</strong> route map header, big stat grid, splits table with proportional pace bars, stacked charts with the scrubber, zones, best efforts on this run.</li>
+    <li><strong>You / Log:</strong> this week summary with a bar chart, calendar, year-over-year, goals with progress rings.</li>
+  </ul>
+
+  <h3>Theme system</h3>
+  <p>A theme is a set of <em>design tokens</em>, not just a colour scheme, so the iOS and terminal looks can differ in structure and not only in colour:</p>
+  <table>
+    <tr><th>Token group</th><th>What it controls</th><th>Strava</th><th>iOS</th><th>Unix</th></tr>
+    <tr><td>Colour roles</td><td>background, surface, text, muted text, accent, divider, chart palette, HR-zone and run-type colours</td><td>white / near-black, orange accent</td><td>grouped grey background, system blue</td><td>per scheme (below)</td></tr>
+    <tr><td>Typography</td><td>family, weights, numeral style</td><td>bold sans, large numerals</td><td>system sans, large titles</td><td>monospace everywhere</td></tr>
+    <tr><td>Shape</td><td>corner radius, borders, shadows</td><td>12 dp cards, light shadow</td><td>continuous 12-16 dp, no shadow, hairlines</td><td>0 dp, 1 dp borders, no shadow</td></tr>
+    <tr><td>Layout style</td><td>card feed vs grouped inset list vs plain table rows</td><td>cards</td><td>grouped inset lists, segmented controls, switch toggles</td><td>table rows, ASCII-style dividers, prompt-style headers</td></tr>
+    <tr><td>Map and charts</td><td>base-map tint, line colours, grid</td><td>muted OSM</td><td>light OSM</td><td>dark or monochrome; "None (routes only)" suits it</td></tr>
+  </table>
+  <p>Implementation plan: a <code>FitnessTheme</code> data class provided through a <code>CompositionLocal</code>; each theme also maps onto Material 3's colour scheme, typography and shapes so stock components follow it. A small set of themed components (card, list row, section header, stat tile, segmented control, switch) read the style tokens and render their per-theme variant. The selection is persisted in DataStore, with a "match system light/dark" option. Vico chart colours and the MapLibre style are derived from the same tokens.</p>
+
+  <h3>Planned themes</h3>
+  <p>The swatches below are mock-ups of one feed card in each theme (live CSS, not screenshots of the app).</p>
+  <div class="themes">
+    <div class="th th-strava"><div class="th-name">Strava (default)</div><div class="th-card"><b>Morning Run</b><span>Oct 17, 7:12 AM · New Castle</span><div class="th-stats"><div>8.42 km<i>Distance</i></div><div>5:39 /km<i>Pace</i></div><div>47:38<i>Time</i></div></div></div></div>
+    <div class="th th-ios"><div class="th-name">iOS style</div><div class="th-card"><b>Morning Run</b><span>Oct 17, 7:12 AM · New Castle</span><div class="th-stats"><div>8.42 km<i>Distance</i></div><div>5:39 /km<i>Pace</i></div><div>47:38<i>Time</i></div></div></div></div>
+    <div class="th th-term"><div class="th-name">Unix: Terminal green</div><div class="th-card"><b>$ run --last</b><span>2026-10-17 07:12  New Castle</span><div class="th-stats"><div>8.42 km<i>dist</i></div><div>5:39 /km<i>pace</i></div><div>47:38<i>time</i></div></div></div></div>
+    <div class="th th-amber"><div class="th-name">Unix: Amber CRT</div><div class="th-card"><b>$ run --last</b><span>2026-10-17 07:12  New Castle</span><div class="th-stats"><div>8.42 km<i>dist</i></div><div>5:39 /km<i>pace</i></div><div>47:38<i>time</i></div></div></div></div>
+    <div class="th th-solar"><div class="th-name">Unix: Solarized dark</div><div class="th-card"><b>$ run --last</b><span>2026-10-17 07:12  New Castle</span><div class="th-stats"><div>8.42 km<i>dist</i></div><div>5:39 /km<i>pace</i></div><div>47:38<i>time</i></div></div></div></div>
+    <div class="th th-gruv"><div class="th-name">Unix: Gruvbox</div><div class="th-card"><b>$ run --last</b><span>2026-10-17 07:12  New Castle</span><div class="th-stats"><div>8.42 km<i>dist</i></div><div>5:39 /km<i>pace</i></div><div>47:38<i>time</i></div></div></div></div>
+    <div class="th th-nord"><div class="th-name">Unix: Nord</div><div class="th-card"><b>$ run --last</b><span>2026-10-17 07:12  New Castle</span><div class="th-stats"><div>8.42 km<i>dist</i></div><div>5:39 /km<i>pace</i></div><div>47:38<i>time</i></div></div></div></div>
+    <div class="th th-drac"><div class="th-name">Unix: Dracula</div><div class="th-card"><b>$ run --last</b><span>2026-10-17 07:12  New Castle</span><div class="th-stats"><div>8.42 km<i>dist</i></div><div>5:39 /km<i>pace</i></div><div>47:38<i>time</i></div></div></div></div>
+  </div>
+
+  <h3>Open design questions (decide in phase 1)</h3>
+  <ul>
+    <li><strong>iOS fidelity:</strong> a hand-made iOS-style component set (more control, no dependency) versus a Cupertino-style Compose library (faster, one more dependency; to be evaluated for Android 17 and this Compose version). The system font on Android is not San Francisco, which cannot be bundled; the iOS theme uses the system sans with iOS spacing, weights and layout.</li>
+    <li><strong>Monospace font:</strong> the system monospace, or one bundled open-licence font (small file) for a consistent terminal look.</li>
+    <li><strong>Light variants</strong> for the Unix themes (Solarized and Gruvbox both have them) and a "follow system" mode.</li>
+  </ul>
+</section>
+
+<section class="card" id="stages">
+  <h2>Stages</h2>
+  <table>
+    <tr><th>#</th><th>Stage</th><th>Status</th><th>Exit criteria</th></tr>
+    <tr><td>A</td><td>Research and analysis of the PC app</td><td><span class="tag done">done</span></td><td>Feature inventory, porting plan, risks</td></tr>
+    <tr><td>B</td><td>History seed staged for the phone</td><td><span class="tag done">done</span></td><td>3,265 raw files + CSV + PC-side data in <code>seed/</code></td></tr>
+    <tr><td>C</td><td>Golden-fixture exporter (PC side)</td><td><span class="tag done">done</span></td><td>77 inputs, per-file + mini-history + full-history oracle, constants</td></tr>
+    <tr><td>0</td><td>Spikes: FIT SDK on real files, Vico, MapLibre, Room; scaffold modules</td><td><span class="tag done">done</span></td><td>All go; streams become files, duration axis is ordinal</td></tr>
+    <tr><td>1</td><td>Import and browse, with the theme system (Strava, iOS, Unix themes)</td><td><span class="tag active">next</span></td><td>Parse-level parity; list and detail correct; themes switch live</td></tr>
+    <tr><td>2</td><td>Core analytics (resampling, moving time, load, curves)</td><td><span class="tag todo">planned</span></td><td>Layer 1 parity</td></tr>
+    <tr><td>3</td><td>Bulk import and rebuild, backup/export</td><td><span class="tag todo">planned</span></td><td>All 3,265 files import unattended and match the PC</td></tr>
+    <tr><td>4</td><td>Heatmap</td><td><span class="tag todo">planned</span></td><td>Smooth with all routes</td></tr>
+    <tr><td>5</td><td>Log, zones, load safety, efficiency</td><td><span class="tag todo">planned</span></td><td>Layer 2 parity</td></tr>
+    <tr><td>6</td><td>Running analytics</td><td><span class="tag todo">planned</span></td><td>Critical speed, run types, routes match PC</td></tr>
+    <tr><td>7</td><td>Extras: CSV elevation, terrain, places, poster</td><td><span class="tag todo">planned</span></td><td>Per feature</td></tr>
+  </table>
+</section>
+
+<section class="card" id="log">
+  <h2>Build log</h2>
+  <p>Newest entries are added at the bottom of this section.</p>
+  <!-- LOG-ENTRIES-START -->
+
+  <h3>Stage A: research <span class="entry-date">2026-10-17</span></h3>
+  <p>Read the PC app's source (schema, API, importers, every analytics module, front-end pages) and measured its database.
+     Compared with the existing Android guide and wrote <code>docs/FEATURE-ANALYSIS.md</code>.</p>
+  <p><strong>Result:</strong> the Android guide covered about half of the PC's current functionality. Decisions taken afterwards:
+     target is a Pixel 7 on Android 17+; all optional extras (poster, cities, terrain elevation, Strava CSV elevation) are wanted;
+     the 14-year history is moved by importing the raw archive on the phone.</p>
+  <div class="issue fixed">
+    <h4>Issue A1: the Android guide had drifted from the PC app</h4>
+    <dl>
+      <dt>Symptom</dt><dd>The guide defined <code>duration</code> as timer seconds; the PC app now stores <em>moving time</em>. Goals, TCX and duplicate detection were missing.</dd>
+      <dt>Cause</dt><dd>The guide was written 2026-09-30; the PC app has had two roadmaps since.</dd>
+      <dt>Solution</dt><dd>Corrected <code>CLAUDE.md</code>; added the missing tables and features; analysis records the drift in section 3.4.</dd>
+    </dl>
+  </div>
+
+  <h3>Stage B: staging the 14-year history <span class="entry-date">2026-10-17</span></h3>
+  <p>Copied the PC's raw archive to <code>FitnessTrackerAndroid/seed/</code> (gitignored): 3,265 files (120 MB), Strava's
+     <code>activities.csv</code>, and <code>pc-side-data.json</code> holding 406 elevation overrides and 8 terrain-elevation profiles
+     keyed by <code>file_hash</code>. The overrides and terrain values exist only in the PC database, not in the raw files, so exporting them
+     prevents silently losing elevation for the Amazfit activities.</p>
+  <div class="issue open">
+    <h4>Issue B1: no phone connected for the transfer</h4>
+    <dl>
+      <dt>Symptom</dt><dd><code>adb devices</code> listed nothing.</dd>
+      <dt>Cause</dt><dd>USB debugging not enabled or no device attached.</dd>
+      <dt>Status</dt><dd>Open. The seed is staged; push with <code>adb push</code> once the Pixel 7 is connected (commands in <code>CLAUDE.md</code>).</dd>
+    </dl>
+  </div>
+
+  <h3>Stage C: golden-fixture exporter <span class="entry-date">2026-10-17</span></h3>
+  <p><code>tools/export_golden.py</code> (PC repo) runs the PC code over a chosen set of files and writes
+     <code>seed/golden/golden.json</code>, <code>constants.json</code> and the input files. Contents:</p>
+  <ul>
+    <li><strong>per_file</strong>: parse summary, per-stream statistics (count, sum, min, max, first/last five), Layer 1 metrics,
+        best efforts, simplified route polylines, load under fixed settings, km and mile splits.</li>
+    <li><strong>mini_history</strong>: every Layer 2 analytic over a temporary database holding only the chosen files, with "today" pinned to 2026-10-17.</li>
+    <li><strong>full_history</strong> (<code>--full</code>): the same analytics over a copy of the real database, as an end-to-end oracle (1,261 runs classified).</li>
+    <li><strong>constants.json</strong>: every named constant in the analytics and importer modules.</li>
+  </ul>
+  <p>Selection: 74 real files spread over format, sport and source, with edge cases (activities with power data, no sport recorded,
+     walks whose moving time is far below elapsed time) plus 3 synthetic FIT files (cycling with 25 minutes of power, a run with a
+     200 s stop, an indoor run with no GPS). Output is 3 MB of JSON, produced in about 30 seconds.</p>
+
+  <div class="issue fixed">
+    <h4>Issue C1: the edge cases were silently cut off by the file cap</h4>
+    <dl>
+      <dt>Symptom</dt><dd>First run: 60 files chosen, but none had power data and the "walk" and "no sport" edge cases were absent.</dd>
+      <dt>Cause</dt><dd>Edge cases were added after the group picks, then the list was trimmed to the cap from the end, which removed exactly the edge cases.</dd>
+      <dt>Solution</dt><dd>Add edge cases first, then groups; raise the default cap to 80. A summary check after each run now lists which edge cases landed.</dd>
+    </dl>
+  </div>
+  <div class="issue fixed">
+    <h4>Issue C2: the only "power" files in the history are running power, not cycling</h4>
+    <dl>
+      <dt>Symptom</dt><dd>The two files with a 20-minute power value were runs; their load is scored from heart rate, so the cycling TSS path had no real example.</dd>
+      <dt>Cause</dt><dd>The user's history has almost no cycling with a power meter; load only uses power for cycling and e-biking.</dd>
+      <dt>Solution</dt><dd>Generate a synthetic cycling FIT with 25 min at 250 W using the PC test helper. Result: method <code>power</code>, load 41.67, normalized power 250. Relabelled the real files "has power data".</dd>
+    </dl>
+  </div>
+  <div class="issue fixed">
+    <h4>Issue C3: tooling quirks while building the exporter</h4>
+    <dl>
+      <dt>Symptom</dt><dd>The Git Bash shell lacked <code>uname</code> and <code>touch</code> (venv activation failed); a scripted edit piped into Python did not apply and the first re-run silently produced the same output; a recursive delete of the output folder was blocked.</dd>
+      <dt>Cause</dt><dd>Stripped-down shell environment; PowerShell here-string piping to <code>python -</code> did not run the script; the delete was refused by a path-safety rule.</dd>
+      <dt>Solution</dt><dd>Use PowerShell with the venv's <code>python.exe</code> directly; make code edits with the editor tool and then confirm by searching the file; clear the output folder with <code>shutil.rmtree</code> on the exact path. Lesson: verify an edit landed before trusting a re-run.</dd>
+    </dl>
+  </div>
+
+  <h3>Findings from the fixtures that affect the Kotlin port <span class="entry-date">2026-10-17</span></h3>
+  <div class="issue">
+    <h4>Finding C4: unknown FIT sports are stored as bare numbers</h4>
+    <dl>
+      <dt>Observation</dt><dd>One real FIT file is stored with sport <code>"62"</code>. <code>fitparse</code> yields the raw number when it does not know the enum value, and the PC stores its string form.</dd>
+      <dt>Consequence</dt><dd>The Garmin FIT SDK may name or number such sports differently, so sport strings will differ between the apps for exotic sports.</dd>
+      <dt>Plan</dt><dd>In the FIT spike, compare sport strings for every distinct sport in the fixtures; map the SDK's value to the PC's string (number as text when unnamed). Parity test on <code>parsed.sport</code>.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Finding C5: day bucketing depends on the machine's time zone</h4>
+    <dl>
+      <dt>Observation</dt><dd>The PC buckets days in the machine's zone; this machine is US Eastern. The fixtures record that.</dd>
+      <dt>Consequence</dt><dd>The Kotlin tests must run with the default zone set to <code>America/New_York</code> or daily load and weekly totals will not match. On the phone, the device zone is used, as on the PC.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Finding C6: <code>daily_load</code> is extended to the real "today"</h4>
+    <dl>
+      <dt>Observation</dt><dd>The PC pads <code>daily_load</code> through the current date, which cannot be pinned from outside.</dd>
+      <dt>Solution</dt><dd>The fixtures keep rows only up to the last activity day. Kotlin tests compare that range; the extension to today is tested separately with an injected clock.</dd>
+    </dl>
+  </div>
+
+  <h3>Phase 0: scaffold and spikes <span class="entry-date">2026-10-17</span></h3>
+  <p>Goal: remove the biggest unknowns before building. The project now has three modules (<code>:core</code> pure Kotlin,
+     <code>:data</code> Room, <code>:app</code> Compose), a Gradle wrapper, and a throwaway spike app that runs on a Pixel 7 class
+     emulator (Android 17, API 37). Every spike used the user's real data exported from the PC app.</p>
+  <p><strong>Toolchain (looked up on 2026-10-17, not guessed):</strong> Gradle 9.8.1, Android Gradle Plugin 9.4.1 (built-in Kotlin),
+     Kotlin 2.4.21, KSP 2.3.12, Compose BOM 2026.09.00, Room 2.8.5, Vico 3.3.1, MapLibre Native 13.7.1, Garmin FIT SDK 21.218.0,
+     compileSdk/minSdk/targetSdk 37.</p>
+
+  <h3>Spike results</h3>
+  <table>
+    <tr><th>Risk</th><th>Question</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>R3</td><td>Does the Garmin FIT SDK reproduce what <code>fitparse</code> produced?</td><td><span class="tag done">pass</span></td>
+        <td>45 of 45 FIT fixtures: sport, start, distance, elevation, device, stream keys, every stream's count/sum/min/max/first/last, laps: 0 mismatches. All <strong>2,527</strong> FIT files in the history parse, 0 failures, 3.4 million samples in 24-33 s on the PC (76-105 files/s).</td></tr>
+    <tr><td>R4</td><td>Can Vico do the activity page (stacked panels, scrubber driving a map marker)?</td><td><span class="tag done">pass</span></td>
+        <td>Three synchronised panels (HR, pace, elevation) on a real 2,724-sample run; pressing on the HR chart shows the value and moves the map marker (screenshots in <code>docs/screens/</code>).</td></tr>
+    <tr><td>R4</td><td>Does the pace/power curve need a log axis?</td><td><span class="tag done">no</span></td>
+        <td>An ordinal axis over the standard duration list with a custom label formatter gives labels at 5s, 15s, 1m, 15m, 1h, 4h on real data.</td></tr>
+    <tr><td>R4</td><td>Stacked columns for weekly zones?</td><td><span class="tag done">pass</span></td>
+        <td>26 real weeks, five zones stacked, formatted axes, legend.</td></tr>
+    <tr><td>R5</td><td>Can MapLibre draw the whole heatmap?</td><td><span class="tag done">pass</span></td>
+        <td>1,936 routes, 1,967 segments, 140,886 points as one GeoJSON source and one line layer: 1.1 s to build on a worker thread, 0.14 s hand-over on the main thread, 3 MB of GeoJSON, renders and pans.</td></tr>
+    <tr><td>R6</td><td>How big can a stream blob be through Room?</td><td><span class="tag done">limit found</span></td>
+        <td>Plain rows read back intact up to 2,000 KB; from 2,200 KB the read throws <code>SQLiteBlobTooBigException: Row too big to fit into CursorWindow</code>. The PC's largest stream JSON (1.29 MB) fits but with little margin. Gzipped: 1.3 MB becomes 421 KB, 5 MB becomes 1.5 MB.</td></tr>
+    <tr><td>-</td><td>Does Room's annotation processor work with AGP 9 and KSP?</td><td><span class="tag done">pass</span></td><td>KSP generated the database; an instrumented test ran on the emulator.</td></tr>
+  </table>
+  <p><strong>Decisions from the results:</strong> (1) streams are stored as gzipped files in <code>filesDir/streams/&lt;file_hash&gt;.json.gz</code>, referenced by hash, not as database rows, so no activity can hit the row limit however long it is; (2) the duration axis is ordinal, not logarithmic; (3) large GeoJSON and similar text are always built off the main thread; (4) FIT enum names come from a table exported from the PC app (<code>core/src/main/resources/fit/fitparse_enums.json</code>), not from the SDK.</p>
+
+  <h3>Issues in phase 0</h3>
+
+  <div class="issue fixed">
+    <h4>Issue D1: the new SDK names things the old library did not</h4>
+    <dl>
+      <dt>Symptom</dt><dd>13 of 45 FIT fixtures mismatched on first run, all in two fields: device (<code>zepp Amazfit Bip 6</code> vs the PC's <code>Amazfit Bip 6</code>; <code>nike 0</code> vs <code>326 0</code>) and one sport (<code>hiit</code> vs the PC's <code>62</code>).</dd>
+      <dt>Cause</dt><dd>The PC's <code>fitparse</code> bundles an older FIT profile. It returns a bare number for values it does not know, and the PC stored that string. The Garmin SDK knows Zepp, Nike and newer sports. The streams, laps and numbers all matched.</dd>
+      <dt>Solution</dt><dd>A script on the PC side (<code>tools/export_fit_enums.py</code>) exports fitparse's sport, manufacturer and Garmin-product tables, and the Kotlin parser looks names up there, including fitparse's rule that the product name is only resolved for manufacturers 1, 13 and 15. Result: 0 mismatches. Trade-off: new devices that fitparse never knew will also show as numbers, which keeps the two apps identical.</dd>
+    </dl>
+  </div>
+
+  <div class="issue fixed">
+    <h4>Issue D2: first charts drew nothing useful</h4>
+    <dl>
+      <dt>Symptom</dt><dd>Axes and grid appeared, but the lines covered only the first 10 seconds; the heart-rate line spiked from 0 at the start; the pace panel was flat.</dd>
+      <dt>Cause</dt><dd>Vico draws 16 dp per point and scrolls by default, so a 2,724-point run extends far off screen. Missing samples were converted to 0, creating the spike.</dd>
+      <dt>Solution</dt><dd>Disable scrolling so the chart fits its content width; build each series from valid samples only and thin to about 500 plotted points (full data stays in memory for calculations); put the x-axis labels on a fixed fraction of the point count.</dd>
+    </dl>
+  </div>
+
+  <div class="issue fixed">
+    <h4>Issue D3: Vico 3 API differs from older examples</h4>
+    <dl>
+      <dt>Symptom</dt><dd>Three compile errors (<code>rememberLine</code>, <code>stacked</code>) and deprecation warnings for <code>lineSeries</code>/<code>columnSeries</code>.</dd>
+      <dt>Cause</dt><dd>Version 3 moved <code>rememberLine</code> to an extension needing its own import, and renamed the stacking mode to <code>MergeMode.Stacked</code>.</dd>
+      <dt>Solution</dt><dd>Downloaded Vico's source jar and read the real signatures instead of guessing. Remaining warning: move to <code>lineModel</code>/<code>columnModel</code> in phase 1.</dd>
+    </dl>
+  </div>
+
+  <div class="issue fixed">
+    <h4>Issue D4: heatmap data took 24 s to build and froze the UI</h4>
+    <dl>
+      <dt>Symptom</dt><dd>The Heatmap tab stayed blank for about 25 seconds (logged: build 24,062 ms).</dd>
+      <dt>Cause</dt><dd>The GeoJSON was assembled on the main thread with an object and several strings per point (140,886 points).</dd>
+      <dt>Solution</dt><dd>New <code>Polyline.appendGeoJson</code> in <code>:core</code> writes coordinates straight into one <code>StringBuilder</code> from integer maths, run on a worker thread; a unit test proves its output is character-identical to the plain decoder on every real route in the fixtures. Build time: 1,130 ms, main-thread hand-over 141 ms.</dd>
+    </dl>
+  </div>
+
+  <div class="issue fixed">
+    <h4>Issue D5: map tile prefetching conflicts with the OpenStreetMap policy</h4>
+    <dl>
+      <dt>Symptom</dt><dd>Logcat showed MapLibre cancelling prefetched tile requests.</dd>
+      <dt>Cause</dt><dd>MapLibre prefetches neighbouring tiles by default; OSM's usage policy asks apps not to.</dd>
+      <dt>Solution</dt><dd>Prefetching turned off. Still to do in phase 4: send an identifying User-Agent for tile requests and verify it on the wire.</dd>
+    </dl>
+  </div>
+
+  <div class="issue fixed">
+    <h4>Issue D6: the emulator became unusable, then would not start (disk full)</h4>
+    <dl>
+      <dt>Symptom</dt><dd>With the existing 2 GB virtual device, Android reported "Process system isn't responding" and the screen slept behind the dialog (screenshots came back black). After cloning the device with more RAM and an interruption, the emulator refused to start: "not enough disk space".</dd>
+      <dt>Cause</dt><dd>2 GB RAM is too little for Compose plus MapLibre on this image. My clone copied the whole 6.7 GB disk image (7.5 GB), leaving 1.5 GB free on the 237 GB disk.</dd>
+      <dt>Solution</dt><dd>Deleted only the clone I had made (the user's own device is untouched) and recreated "Pixel7 spike" from a configuration file alone (3 GB RAM, 4 cores, 4 GB data partition). Free space is about 4 GB. <strong>The PC's disk is nearly full; the user should free space before larger builds.</strong></dd>
+    </dl>
+  </div>
+
+  <div class="issue fixed">
+    <h4>Issue D7: tooling traps while testing on the emulator</h4>
+    <dl>
+      <dt>Symptom</dt><dd>Screenshots saved with PowerShell's <code>&gt;</code> were not valid PNGs; <code>am start</code> sometimes did not switch tab; an instrumented test hung on "waiting for device" after the emulator exited; the first Android build reported 2 h 42 min.</dd>
+      <dt>Cause</dt><dd>PowerShell re-encodes redirected bytes as text; the app was already running; the emulator was a child of an interrupted session; the first build downloaded all dependencies (the elapsed time includes a long idle period, later builds take 4-52 s).</dd>
+      <dt>Solution</dt><dd>Take screenshots on the device and pull the file; force-stop the app before each launch and wait for the first frame; run <code>gradlew --stop</code> and restart the emulator when a device is lost; use JUnit 4's <code>@Test</code> in instrumented tests (<code>kotlin.test.Test</code> is not available there).</dd>
+    </dl>
+  </div>
+
+  <div class="issue">
+    <h4>Finding D8: real data needs outlier handling on the pace chart</h4>
+    <dl>
+      <dt>Observation</dt><dd>One GPS-start sample in the test run has an absurd pace, stretching the pace axis to 24:00 /km.</dd>
+      <dt>Plan</dt><dd>The activity page clips the pace axis to a robust range (for example the 2nd to 98th percentile) and the series to that range, and shows the raw values in the scrubber.</dd>
+    </dl>
+  </div>
+
+  <div class="issue">
+    <h4>Finding D9: first start is slow on a cold emulator</h4>
+    <dl>
+      <dt>Observation</dt><dd>On a freshly booted emulator the first frames took 15 to 30 s; later starts took about 3.6 s (<code>am start -W</code>). Debug builds are unoptimised.</dd>
+      <dt>Plan</dt><dd>Judge startup on the physical Pixel 7 with a release build and a baseline profile, not on the emulator.</dd>
+    </dl>
+  </div>
+
+  <p><strong>Phase 0 is complete.</strong> Nothing found changes the architecture; two things change the design (streams as files; an ordinal duration axis) and one adds a requirement (a first-class theme system, below).</p>
+
+  <h3>UI direction recorded <span class="entry-date">2026-10-17</span></h3>
+  <p>The user asked for the app to look like Strava and to include a theme switcher with an iOS-style look and Unix-style themes.
+     The design is in the "UI and themes" section above; it is built in phase 1 together with the import and list screens, so every screen is theme-aware from the start rather than retrofitted.</p>
+
+  <!-- LOG-ENTRIES-END -->
+</section>
+
+<section class="card" id="issues">
+  <h2>Issue index</h2>
+  <table>
+    <tr><th>ID</th><th>Title</th><th>Status</th></tr>
+    <tr><td>A1</td><td>Android guide drifted from the PC app</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>B1</td><td>No phone connected for the seed transfer</td><td><span class="tag" style="color:var(--bad)">open</span></td></tr>
+    <tr><td>C1</td><td>Edge cases cut off by the file cap</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>C2</td><td>No real cycling-with-power example</td><td><span class="tag done">fixed (synthetic)</span></td></tr>
+    <tr><td>C3</td><td>Shell and edit tooling quirks</td><td><span class="tag done">worked around</span></td></tr>
+    <tr><td>C4</td><td>Unknown FIT sports stored as numbers</td><td><span class="tag active">to verify in spike</span></td></tr>
+    <tr><td>C5</td><td>Time-zone dependence of day bucketing</td><td><span class="tag active">test setup rule</span></td></tr>
+    <tr><td>C6</td><td><code>daily_load</code> extended to today</td><td><span class="tag done">handled in fixtures</span></td></tr>
+    <tr><td>D1</td><td>New FIT SDK names devices/sports the old library did not</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>D2</td><td>First charts drew only 10 s; NaN plotted as 0</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>D3</td><td>Vico 3 API differences</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>D4</td><td>Heatmap data took 24 s on the main thread</td><td><span class="tag done">fixed (1.1 s)</span></td></tr>
+    <tr><td>D5</td><td>Tile prefetching vs OSM policy</td><td><span class="tag done">off; UA in phase 4</span></td></tr>
+    <tr><td>D6</td><td>Emulator unresponsive, then disk full</td><td><span class="tag done">fixed; disk still low</span></td></tr>
+    <tr><td>D7</td><td>Emulator and Gradle tooling traps</td><td><span class="tag done">worked around</span></td></tr>
+    <tr><td>D8</td><td>Pace chart needs outlier clipping</td><td><span class="tag active">phase 1</span></td></tr>
+    <tr><td>D9</td><td>Slow first start on a cold emulator</td><td><span class="tag active">judge on device</span></td></tr>
+  </table>
+</section>
+
+<section class="card" id="decisions">
+  <h2>Decisions</h2>
+  <table>
+    <tr><th>Date</th><th>Decision</th><th>Reason</th></tr>
+    <tr><td>2026-09-30</td><td>Standalone app; sync with the PC later</td><td>Works without the PC being on.</td></tr>
+    <tr><td>2026-10-17</td><td>Pixel 7, Android 17+ only</td><td>No legacy compatibility work.</td></tr>
+    <tr><td>2026-10-17</td><td>All optional extras wanted; poster via a WebView first</td><td>Reuses ~840 lines of working JS.</td></tr>
+    <tr><td>2026-10-17</td><td>History moved by bulk-importing the raw archive</td><td>One code path; doubles as the end-to-end parity test.</td></tr>
+    <tr><td>2026-10-17</td><td>Streams stored as gzipped files, not database rows</td><td>Measured row limit ~2 MB (R6).</td></tr>
+    <tr><td>2026-10-17</td><td>Duration curves use an ordinal axis, not a log axis</td><td>Works in Vico with a custom label formatter.</td></tr>
+    <tr><td>2026-10-17</td><td>FIT enum names come from fitparse's tables, not the SDK's</td><td>Stored strings must equal the PC's for parity and later sync.</td></tr>
+    <tr><td>2026-10-17</td><td>UI: Strava-like, with a theme system (Strava, iOS style, Unix themes) built in phase 1</td><td>User request; theming must be structural (tokens, shapes, layout style), so it cannot be retrofitted.</td></tr>
+    <tr><td>2026-10-17</td><td>Golden fixtures kept in the gitignored <code>seed/</code> folder, not in test resources</td><td>Inputs are personal data; copy selected ones into test resources only with explicit approval.</td></tr>
+  </table>
+</section>
+
+</main>
+<footer>Appended to as the build progresses. Source of truth for calculations: the PC app.</footer>
+</body>
+</html>

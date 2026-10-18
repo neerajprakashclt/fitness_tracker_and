@@ -1,0 +1,224 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+# Fitness Tracker for Android — Project Guide
+
+A native Android spin-off of the desktop/web Fitness Tracker at
+`C:\Users\neera\Projects\FitnessTracker` (the "PC app"). Same idea: a personal,
+local-first Strava replacement that imports your own workout files and computes real
+training analytics. It runs **entirely on the phone**, with no server and no account.
+The PC app's LLM chat is out of scope for now.
+
+The PC app is the reference implementation. When this file and the PC code disagree
+on *how something is calculated*, the PC code (`app/analytics/`, `app/importers/`) is
+right. Read it before porting a feature. Its `CLAUDE.md` records the lessons learned.
+
+## Status
+
+**Phase 0 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase). The Gradle
+project exists with `:core`, `:data` and `:app` (the app is still a throwaway spike host), versions pinned in
+`gradle/libs.versions.toml`. Next: phase 1, import and browse, with the theme system. Background:
+`docs/FEATURE-ANALYSIS.md`. Real-data fixtures made by the PC app are in `seed/golden/` (gitignored).
+
+## Architecture (decided — don't re-litigate without reason)
+
+- **Standalone now, syncable later.** The phone has its own database and does all
+  processing. Syncing with the PC app over Tailscale is a planned *later* phase:
+  don't build it until asked, but don't make choices that block it (see "Sync
+  readiness").
+- **Language/UI**: Kotlin, Jetpack Compose, Material 3, a single activity with
+  Navigation Compose. No XML layouts, no Java.
+- **Modules**:
+  - `:core`: pure Kotlin/JVM, with no Android dependencies. Holds file parsers,
+    analytics and formatting. This is where the ported logic lives, and it's unit
+    tested on the JVM, which is fast.
+  - `:data`: Room database, DAOs, repository, the raw-file archive, WorkManager jobs.
+  - `:app`: Compose screens and ViewModels.
+- **Database**: Room (SQLite). The schema mirrors the PC app's so that sync stays a
+  mapping exercise, not a redesign.
+- **Background work**: WorkManager for import and derived-data recompute. Never parse
+  or recompute on the main thread.
+- **Serialization**: kotlinx.serialization (stream JSON, test fixtures).
+
+Don't swap in Flutter, React Native, KMP-with-iOS, a cloud backend or Firebase
+without the user explicitly revisiting this.
+
+## Target device
+
+Google Pixel 7, minimum **Android 17** (confirm its API level in Android Studio; likely 37). With that floor there is
+no need for core-library desugaring or legacy-storage workarounds; `java.time` is native. Personal use, sideloaded.
+
+## UI direction
+
+Strava-like (activity feed cards, bold stats, orange accent) with a **theme system**: a Strava theme, an iOS-style
+theme, and Unix/terminal themes (terminal green, amber, Solarized, Gruvbox, Nord, Dracula), switchable in Settings >
+Appearance. Themes are design tokens (colours, typography, shape, layout style), not just colour schemes, and every
+chart and map reads them. Built in phase 1 so no screen is hard-coded to one look. Design and mock-ups: the "UI and
+themes" section of `docs/DESIGN-LOG.html`.
+
+## Environment notes (learned in phase 0)
+
+- Local files: `local.properties` (`sdk.dir`, gitignored) and `seed/` (gitignored personal data).
+- Test emulator: AVD `Pixel7_Spike` (3 GB RAM, Android 17, API 37). The stock 2 GB device is too small for Compose plus
+  MapLibre. Judge speed on the real Pixel 7, not the emulator.
+- The PC's disk was nearly full (about 4 GB free). The emulator refuses to start below its disk requirement.
+- Save emulator screenshots with `adb shell screencap` and `adb pull`, never with a PowerShell `>` redirect.
+- Instrumented tests use JUnit 4's `@Test`; JVM tests in `:core` use `kotlin.test`.
+- The tests run in the `America/New_York` zone (set in `core/build.gradle.kts`) to match the golden fixtures.
+- FIT enum names (sport, manufacturer) come from `core/src/main/resources/fit/fitparse_enums.json`, generated on the PC
+  by `tools/export_fit_enums.py`, so stored strings equal the PC's.
+
+## Key libraries
+
+| Need | Library | Notes |
+|---|---|---|
+| FIT parsing | Garmin FIT SDK for Java (`com.garmin:fit`, Maven Central) | Check the latest version when adding it |
+| GPX parsing | `XmlPullParser` | Built into Android; on the JVM (`:core` tests) the same parser comes from `kxml2` |
+| Charts | Vico (Compose) | HR/pace/elevation stacks, fitness chart, curves |
+| Maps | MapLibre Native for Android, OSM raster tiles | Needs to draw hundreds of polylines for the heatmap. Follow the OSM tile usage policy: set a real User-Agent and don't prefetch |
+| DB | Room + KSP | |
+| Background | WorkManager | |
+
+Keep the dependency list short. Add a library only when the platform can't do the job
+reasonably.
+
+## Data model (mirrors the PC app)
+
+- `activities`: **primary key `file_hash`** (sha256 of the *decompressed* file, the
+  same value the PC app stores). Also sport, start_time (UTC ISO 8601), duration
+  (**moving time** in seconds, as the PC app defines it: see docs/FEATURE-ANALYSIS.md 4.3), distance (m), elevation_gain (m), device, source_file, imported_at.
+- `streams`: per activity, columns aligned to `time` (seconds from start): heart_rate,
+  power, speed, cadence, altitude, distance, lat, lon. Keys with no data are omitted.
+  **Stored as a gzipped JSON file `filesDir/streams/<file_hash>.json.gz`, not as a database
+  row**: Android reads rows through a ~2 MB window and a plain blob fails from about 2.1 MB
+  (measured in phase 0).
+- `laps`: per-activity splits.
+- `goals`: sport?, metric (distance/duration/activities/elevation), period (week/month/year), target.
+- `elevation_overrides` / `terrain_elevation`: elevation that did not come from the file (Strava CSV, terrain lookup); re-applied after a rebuild.
+- `settings`: ftp, max_hr, resting_hr, threshold_hr, each with `updated_at`. Unset
+  keys are estimated from the data.
+- Derived, versioned, and rebuilt when missing or outdated, never updated
+  incrementally: `activity_metrics`, `activity_bests`, `routes`, `personal_records`,
+  `daily_load`.
+- `changes` (for future sync): an append-only log of `(seq, entity, key, op, changed_at)`
+  for activity imports, deletes and settings edits. Deletes leave a tombstone so a
+  future sync can't bring them back.
+
+Raw imported files are kept in app-private storage (`filesDir/imports/`), so the
+database can always be rebuilt from them. That's the same rule as the PC app, with
+the same "reparse everything" escape hatch.
+
+## Sync readiness (build none of the sync itself yet)
+
+- Identity is `file_hash`, never a local auto-increment id, in every table that could
+  sync.
+- Only **raw files, settings and tombstones** would ever sync. Derived tables are
+  always recomputed locally, so the two sides can't disagree about them.
+- Store timestamps in UTC; convert to local time only for display and day-bucketing.
+
+## Features, in priority order
+
+1. **Import**: pick files with the system file picker (`ACTION_OPEN_DOCUMENT`,
+   multiple files), or share from another app (`ACTION_SEND` / `SEND_MULTIPLE`).
+   Supports `.fit`, `.gpx`, `.tcx` and their `.gz` versions, with dedupe by file hash and same-run-from-two-apps detection (PC: `importers/similar.py`).
+2. **Activity list and detail**: summary tiles, HR/pace/elevation charts, a route
+   map, laps.
+3. **Training load**: per-activity load score and CTL/ATL/TSB, plus a thresholds
+   settings screen.
+4. **Power/pace curves and best efforts.**
+5. **Heatmap.**
+6. **Everything else the PC app has**, phased in `docs/FEATURE-ANALYSIS.md` section 12: HR zones, training log and
+   goals, splits, cadence, efficiency, load safety, critical speed, run types, predictions, volume, route matching.
+7. **Optional extras, wanted by the user**: Strava CSV elevation fill, terrain elevation, offline places (cities),
+   and the running-life poster (WebView host first).
+8. *(Later)* Sync with the PC app over Tailscale; Health Connect import.
+
+Test each phase against the user's real files before starting the next (see "Test
+data").
+
+## Porting the analytics: rules that must match the PC app
+
+These came from real bugs. Keep the constants identical unless both apps change
+together.
+
+- **All-zero sensor streams are "no sensor".** The user's watch (Amazfit Bip 6)
+  writes 0 W power without a power sensor. Drop HR/power/cadence/speed streams that
+  are all zero or missing (PC: `importers/common.py:keep_streams`).
+- **Device name:** skip a numeric manufacturer id when a product name exists
+  ("Amazfit Bip 6", not "339 Amazfit Bip 6").
+- **Resampling** (PC: `analytics/streams.py:resample_1hz`): resample to 1 Hz
+  moving time and drop pauses, i.e. gaps longer than 5 s. Forward-fill short gaps, but
+  **linearly interpolate cumulative distance**, because "smart recording" devices
+  sample every few seconds.
+- **Training load** (PC: `analytics/training_load.py`):
+  - Cycling with power and an FTP uses TSS from normalized power (30 s rolling
+    average, 4th-power mean).
+  - Otherwise, activities with HR use Banister TRIMP, weight 1.92, scaled so one hour
+    at threshold HR = 100.
+  - With neither, use 50 per hour.
+  - Estimates for unset thresholds: FTP = 0.95 × best 20-min power; max HR = the
+    99th-percentile HR; threshold HR = resting + 0.85 × HR reserve; resting HR
+    defaults to 60.
+- **CTL/ATL:** 42/7-day exponential averages. TSB = the *previous* day's CTL − ATL.
+  Days are bucketed in the phone's **local** timezone.
+- **Curves** (PC: `analytics/power_curve.py`): use the same duration list, the same
+  standard distances, and no speed records under 5 s. Zero out per-second distance
+  jumps above 12 m/s for run/walk/hike and 30 m/s for everything else (GPS glitches).
+- **Routes** (PC: `analytics/heatmap.py`): split tracks at gaps over 250 m, simplify
+  with RDP at 5 m tolerance, store as Google encoded polylines.
+- **GPX:** Strava writes sport types as numbers (`9` = running, `1` = cycling), and
+  there are no laps. Derive speed with a centred difference over ±2 samples, and
+  moving time where speed ≥ 0.3 m/s and gaps ≤ 30 s.
+
+**Parity tests (required for every ported metric):** use the PC app to generate
+golden JSON (parsed summary, load, bests, simplified route) for a set of real and
+synthetic files. Check those fixtures into `core/src/test/resources/golden/`, and
+assert that the Kotlin results match within a small tolerance. The PC repo's
+`tests/fit_builder.py` can generate synthetic FIT files for edge cases.
+
+## History seed
+
+`seed/` (gitignored, personal data) holds a copy of the PC app's 14-year history: `imports/` (3,265 raw
+`.fit.gz`/`.gpx`/`.tcx` files), Strava's `activities.csv`, and `pc-side-data.json` (elevation overrides and terrain
+elevation, keyed by `file_hash`). Plan: copy `seed/` to the phone and bulk-import it through the normal import path;
+that also serves as the end-to-end parity test. Push with
+`adb push seed/imports /sdcard/Download/fitness-seed/imports` (and the other two files) once a phone is connected.
+
+## Test data
+
+The user's real exports, archived by the PC app, are in
+`C:\Users\neera\Projects\FitnessTracker\data\imports\`: Amazfit Bip 6 FIT files,
+plus one FIT file recorded through Strava. These are personal data: **copy selected
+files into test resources only with the user's OK**, and never commit them to a
+public remote.
+
+## Conventions
+
+- Local-first and single-user: no accounts, analytics, crash reporting or cloud
+  services. The only network permission is for map tiles.
+- Compose screens take state from a ViewModel. Business logic lives in `:core`/`:data`,
+  never in composables.
+- Metric units, formatted in `:core`: pace "m:ss /km" for run/walk/hike and km/h for
+  everything else. This matches the PC app.
+- Recompute derived data after imports, deletes and settings changes, as one
+  WorkManager job (PC: `recompute_all`).
+- Android Studio and the Android SDK run on Windows here. Use `gradlew.bat`, or
+  `./gradlew` in Git Bash.
+
+## Commands
+
+```bash
+./gradlew assembleDebug                                    # build the debug APK
+./gradlew installDebug                                     # install on a connected phone/emulator
+./gradlew test                                             # all JVM unit tests (fast: :core)
+./gradlew :core:test --tests "*TrainingLoadTest*"          # one test class
+./gradlew :core:test --tests "*TrainingLoadTest.ctlDecay*" # one test
+./gradlew connectedAndroidTest                             # Room/UI tests on a device
+./gradlew lint
+```
+
+Real test classes so far: `:core` `FitParityTest` (45 FIT fixtures vs the PC), `FitCorpusTest` (every FIT file in
+`seed/imports`), `PolylineTest`; `:data` androidTest `BlobLimitTest` (`:data:connectedDebugAndroidTest`, needs the
+emulator). Regenerate the fixtures on the PC with
+`venv\Scripts\python.exe -m tools.export_golden --out <FitnessTrackerAndroid>\seed\golden --full`.
