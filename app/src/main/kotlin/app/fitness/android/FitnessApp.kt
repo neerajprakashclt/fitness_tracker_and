@@ -1,14 +1,86 @@
 package app.fitness.android
 
 import android.app.Application
+import android.net.Uri
+import androidx.work.Configuration
 import app.fitness.android.ui.Prefs
+import app.fitness.android.work.BulkWorker
 import app.fitness.data.ActivityRepository
+import app.fitness.data.BackupManager
 import app.fitness.data.FitnessDatabase
+import app.fitness.data.FolderImporter
+import app.fitness.data.FolderScan
 import app.fitness.data.ImportRunner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.io.File
+
+/** What the user is shown after choosing a folder, before anything is imported. */
+sealed interface FolderPreview {
+    data object Scanning : FolderPreview
+    class Ready(val scan: FolderScan) : FolderPreview
+    class Failed(val reason: String) : FolderPreview
+}
 
 /** Hand-wired dependencies: one database, one repository, one import runner, for the life of the process. */
-class FitnessApp : Application() {
+class FitnessApp : Application(), Configuration.Provider {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     val prefs by lazy { Prefs(this) }
-    val repository by lazy { ActivityRepository(FitnessDatabase.create(this), filesDir) }
+    private val database by lazy { FitnessDatabase.create(this) }
+    val repository by lazy { ActivityRepository(database, filesDir) }
     val importRunner by lazy { ImportRunner(repository, contentResolver) }
+    val folderImporter by lazy { FolderImporter(contentResolver, repository) }
+    val backup by lazy { BackupManager(repository) }
+    val databaseFile: File get() = getDatabasePath("fitness.db")
+
+    private val _folderPreview = MutableStateFlow<FolderPreview?>(null)
+    val folderPreview: StateFlow<FolderPreview?> = _folderPreview
+
+    override val workManagerConfiguration: Configuration get() = Configuration.Builder().build()
+
+    override fun onCreate() {
+        super.onCreate()
+        // Files picked or shared follow the Settings choices.
+        appScope.launch { prefs.untyped.collect { importRunner.untyped = it } }
+        appScope.launch { prefs.match.collect { importRunner.match = it } }
+        // Derived data (routes) is rebuilt when missing or built by older logic.
+        appScope.launch { repository.ensureDerived() }
+    }
+
+    /** List the folder the user chose and show what is in it; nothing is imported until they confirm. */
+    fun previewFolder(tree: Uri) {
+        _folderPreview.value = FolderPreview.Scanning
+        appScope.launch {
+            _folderPreview.value = try { FolderPreview.Ready(folderImporter.scan(tree)) }
+            catch (e: Exception) { FolderPreview.Failed(e.message ?: e.javaClass.simpleName) }
+        }
+    }
+
+    fun confirmFolder() {
+        val ready = _folderPreview.value as? FolderPreview.Ready ?: return
+        _folderPreview.value = null
+        BulkWorker.importFolder(this, ready.scan.tree)
+    }
+
+    fun dismissFolderPreview() { _folderPreview.value = null }
+
+    fun startRebuild() = BulkWorker.rebuild(this)
+    fun startRestore(backup: Uri) = BulkWorker.restore(this, backup)
+    fun cancelJob() = BulkWorker.cancel(this)
+
+    fun exportBackup(out: Uri) {
+        appScope.launch {
+            val stream = contentResolver.openOutputStream(out) ?: return@launch
+            val count = repository.count().first()
+            stream.use { backup.export(it, importRunner, count) }
+        }
+    }
+
+    fun forgetImportHistory() { appScope.launch { repository.clearImportLog() } }
 }

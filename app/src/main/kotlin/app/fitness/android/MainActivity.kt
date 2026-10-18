@@ -1,6 +1,8 @@
 package app.fitness.android
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,9 +13,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.fitness.android.ui.AppNav
+import app.fitness.android.ui.ImportActions
 import app.fitness.android.ui.theme.Fitness
 import app.fitness.android.ui.theme.FitnessThemeHost
 
@@ -36,10 +40,36 @@ class MainActivity : ComponentActivity() {
                     controller.isAppearanceLightStatusBars = !dark
                     controller.isAppearanceLightNavigationBars = !dark
                 }
-                val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-                    app.importRunner.start(uris, app.prefs.untyped.value)
+                val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                    app.importRunner.start(uris)
                 }
-                AppNav(app, onImport = { picker.launch(arrayOf("*/*")) })
+                val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+                    if (tree != null) {
+                        // Keep read access to the folder, so the job can carry on after the app is closed or restarted.
+                        contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        app.previewFolder(tree)
+                    }
+                }
+                val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+                val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+                    if (uri != null) app.exportBackup(uri)
+                }
+                val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) app.startRestore(uri)
+                }
+                val actions = ImportActions(
+                    files = { files.launch(arrayOf("*/*")) },
+                    folder = { folder.launch(null) },
+                    startFolder = {
+                        // The progress notification needs permission on Android 13+; the job runs without it if refused.
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                            notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        app.confirmFolder()
+                    },
+                    backup = { backup.launch("fitness-backup-${java.time.LocalDate.now()}.zip") },
+                    restore = { restore.launch(arrayOf("application/zip", "application/octet-stream")) },
+                )
+                AppNav(app, actions)
             }
         }
     }
@@ -56,6 +86,6 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
             else -> return
         }
-        app.importRunner.start(uris, app.prefs.untyped.value)
+        app.importRunner.start(uris)
     }
 }

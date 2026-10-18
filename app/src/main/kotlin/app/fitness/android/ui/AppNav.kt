@@ -28,6 +28,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import app.fitness.android.FitnessApp
+import app.fitness.android.FolderPreview
+import app.fitness.android.ui.components.QuietButton
 import app.fitness.android.ui.activities.ActivitiesScreen
 import app.fitness.android.ui.activities.ActivitiesViewModel
 import app.fitness.android.ui.detail.DetailScreen
@@ -36,6 +38,15 @@ import app.fitness.android.ui.settings.SettingsScreen
 import app.fitness.android.ui.theme.Fitness
 import app.fitness.android.ui.theme.LayoutStyle
 import app.fitness.core.Formatter
+
+/** What the screens can ask the activity to do: open a system picker, or start a job once the user has confirmed. */
+class ImportActions(
+    val files: () -> Unit,
+    val folder: () -> Unit,
+    val startFolder: () -> Unit,
+    val backup: () -> Unit,
+    val restore: () -> Unit,
+)
 
 private object Routes {
     const val ACTIVITIES = "activities"
@@ -46,11 +57,12 @@ private object Routes {
 
 /** The single activity's navigation: two top-level tabs and the activity detail. */
 @Composable
-fun AppNav(app: FitnessApp, onImport: () -> Unit, nav: NavHostController = rememberNavController()) {
+fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rememberNavController()) {
     val t = Fitness.theme
     val units by app.prefs.units.collectAsStateWithLifecycle()
     val streetMap by app.prefs.streetMap.collectAsStateWithLifecycle()
     val importState by app.importRunner.state.collectAsStateWithLifecycle()
+    val folderPreview by app.folderPreview.collectAsStateWithLifecycle()
     val fmt = remember(units) { Formatter(units) }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
@@ -60,7 +72,7 @@ fun AppNav(app: FitnessApp, onImport: () -> Unit, nav: NavHostController = remem
             NavHost(nav, startDestination = Routes.ACTIVITIES) {
                 composable(Routes.ACTIVITIES) {
                     val vm: ActivitiesViewModel = viewModel(factory = viewModelFactory { initializer { ActivitiesViewModel(app.repository) } })
-                    ActivitiesScreen(vm, importState, fmt, onImport, app.importRunner::dismiss) { nav.navigate(Routes.detail(it)) }
+                    ActivitiesScreen(vm, importState, fmt, actions, app.importRunner::dismiss, app::cancelJob) { nav.navigate(Routes.detail(it)) }
                 }
                 composable(Routes.DETAIL) { e ->
                     val hash = e.arguments?.getString("hash").orEmpty()
@@ -69,10 +81,11 @@ fun AppNav(app: FitnessApp, onImport: () -> Unit, nav: NavHostController = remem
                 }
                 composable(Routes.SETTINGS) {
                     val count by app.repository.count().collectAsStateWithLifecycle(initialValue = null)
-                    SettingsScreen(app.prefs, count)
+                    SettingsScreen(app, actions, count)
                 }
             }
         }
+        folderPreview?.let { FolderPreviewDialog(it, onStart = actions.startFolder, onDismiss = app::dismissFolderPreview) }
         if (route == Routes.ACTIVITIES || route == Routes.SETTINGS) {
             BottomBar(route) { dest ->
                 nav.navigate(dest) {
@@ -83,6 +96,38 @@ fun AppNav(app: FitnessApp, onImport: () -> Unit, nav: NavHostController = remem
             }
         }
     }
+}
+
+/** What was found in the chosen folder, shown before anything is imported. */
+@Composable
+private fun FolderPreviewDialog(preview: FolderPreview, onStart: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(when (preview) { FolderPreview.Scanning -> "Looking at the folder…"; is FolderPreview.Ready -> "Import this folder?"; is FolderPreview.Failed -> "Could not read the folder" }) },
+        text = {
+            when (preview) {
+                FolderPreview.Scanning -> Text("Listing activity files, including subfolders.")
+                is FolderPreview.Failed -> Text(preview.reason)
+                is FolderPreview.Ready -> {
+                    val s = preview.scan
+                    Column {
+                        if (s.files.isEmpty()) Text("No .fit, .gpx or .tcx files found (gzipped ones count too).")
+                        else if (s.newFiles == 0) Text("Nothing new: all ${s.files.size} activity files were handled by an earlier import.")
+                        else {
+                            Text("Found ${s.files.size} activity files: " + s.byFormat.entries.joinToString(", ") { "${it.value} ${it.key.uppercase()}" } + ".")
+                            if (s.seenBefore > 0) Text("${s.seenBefore} were handled by an earlier import and will be skipped quickly.", modifier = Modifier.padding(top = 8.dp))
+                            Text(
+                                "It runs in the background with a notification, can be stopped at any time, and carries on where it left off if the phone interrupts it. Files already in the app are skipped.",
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { if (preview is FolderPreview.Ready && preview.scan.newFiles > 0) QuietButton("Import ${preview.scan.newFiles} files", onStart) },
+        dismissButton = { QuietButton(if (preview is FolderPreview.Ready) "Cancel" else "Close", onDismiss) },
+    )
 }
 
 @Composable

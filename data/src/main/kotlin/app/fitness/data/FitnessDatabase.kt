@@ -13,6 +13,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /*
@@ -79,6 +81,36 @@ data class ChangeEntity(
     /** `put` or `delete`. */
     val op: String,
     @ColumnInfo(name = "changed_at") val changedAt: String,
+)
+
+/**
+ * One row per file a folder import has seen, so a run that is stopped or killed carries on where it left off and a later
+ * run over the same folder only looks at new files. Keyed by the tree and document ids, with the size and modified time
+ * that were seen (a changed file is looked at again). Not synced: it only describes this phone's imports.
+ */
+@Entity(tableName = "import_log")
+data class ImportLogEntity(
+    @PrimaryKey @ColumnInfo(name = "doc_key") val docKey: String,
+    val size: Long,
+    val modified: Long,
+    /** `imported`, `duplicate`, `similar` or `failed`. */
+    val outcome: String,
+    @ColumnInfo(name = "file_hash") val fileHash: String?,
+    val message: String?,
+    @ColumnInfo(name = "logged_at") val loggedAt: String,
+)
+
+data class ImportLogKey(
+    @ColumnInfo(name = "doc_key") val docKey: String,
+    val size: Long,
+    val modified: Long,
+    val outcome: String,
+)
+
+data class CandidateRow(
+    @ColumnInfo(name = "file_hash") val fileHash: String,
+    @ColumnInfo(name = "start_time") val startTime: String,
+    val distance: Double,
 )
 
 /** One row of the activity feed: the activity and its route in a single query. */
@@ -148,18 +180,64 @@ interface ActivityDao {
 
     @Query("SELECT * FROM changes ORDER BY seq")
     suspend fun changes(): List<ChangeEntity>
+
+    /** Stored activities worth comparing with a new file for same-run detection (dates are UTC `yyyy-MM-dd`, inclusive). */
+    @Query(
+        """SELECT file_hash, start_time, distance FROM activities
+           WHERE (:anySport OR sport = :sport) AND distance > 0 AND substr(start_time, 1, 10) BETWEEN :fromDate AND :toDate"""
+    )
+    suspend fun candidates(sport: String, anySport: Boolean, fromDate: String, toDate: String): List<CandidateRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrReplace(activity: ActivityEntity)
+
+    @Query("DELETE FROM laps WHERE file_hash = :hash")
+    suspend fun deleteLaps(hash: String)
+
+    @Query("SELECT imported_at FROM activities WHERE file_hash = :hash")
+    suspend fun importedAt(hash: String): String?
+
+    /** Activities with no route, or one built by older logic (derived data is rebuilt when missing or outdated). */
+    @Query(
+        """SELECT a.file_hash FROM activities a LEFT JOIN routes r ON r.file_hash = a.file_hash
+           WHERE r.file_hash IS NULL OR r.version < :version"""
+    )
+    suspend fun routesToBuild(version: Int): List<String>
+
+    @Query("SELECT doc_key, size, modified, outcome FROM import_log WHERE substr(doc_key, 1, :prefixLength) = :prefix")
+    suspend fun logFor(prefix: String, prefixLength: Int): List<ImportLogKey>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putLog(entries: List<ImportLogEntity>)
+
+    @Query("DELETE FROM import_log")
+    suspend fun clearLog()
+
+    @Query("SELECT COUNT(*) FROM import_log")
+    suspend fun logSize(): Int
 }
 
 @Database(
-    entities = [ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class],
-    version = 1,
+    entities = [ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class],
+    version = 2,
     exportSchema = true,
 )
 abstract class FitnessDatabase : RoomDatabase() {
     abstract fun activities(): ActivityDao
 
     companion object {
+        /** Version 2 added the import log. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `import_log` (`doc_key` TEXT NOT NULL, `size` INTEGER NOT NULL, `modified` INTEGER NOT NULL, " +
+                        "`outcome` TEXT NOT NULL, `file_hash` TEXT, `message` TEXT, `logged_at` TEXT NOT NULL, PRIMARY KEY(`doc_key`))"
+                )
+            }
+        }
+
         fun create(context: Context): FitnessDatabase =
-            Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db").build()
+            Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db")
+                .addMigrations(MIGRATION_1_2).build()
     }
 }

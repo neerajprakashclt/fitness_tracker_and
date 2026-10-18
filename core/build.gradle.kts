@@ -17,6 +17,7 @@ dependencies {
     testImplementation(libs.xmlpull)
     testImplementation(libs.kxml2)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.launcher)
 }

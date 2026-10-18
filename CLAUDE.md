@@ -16,19 +16,26 @@ right. Read it before porting a feature. Its `CLAUDE.md` records the lessons lea
 
 ## Status
 
-**Phases 0 and 1 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase). Phase 1 delivered:
-FIT, GPX and TCX import with parse-level parity to the PC (77 fixtures, 0 mismatches; the whole 3,265-file history
-imports with 0 failures), Room database keyed by `file_hash`, the activity feed and detail screens (route, tiles,
-charts, laps), import by file picker and share, delete with tombstones, and the theme system (Strava, iOS style,
-Terminal green, Amber, Solarized, Gruvbox, Nord, Dracula). Next: phase 2, core analytics (resampling, load, curves,
-bests, thresholds). Not yet built: similar-run detection, bulk import with WorkManager and the seed push (phase 3).
-Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures made by the PC app are in `seed/golden/` (gitignored).
+**Phases 0, 1 and 3 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase; phase 2 was skipped
+over by the user's choice and is next). Phase 1: FIT, GPX and TCX import with parse-level parity to the PC (77 fixtures,
+0 mismatches), Room database keyed by `file_hash`, the activity feed and detail screens (route, tiles, charts, laps),
+import by file picker and share, delete with tombstones, and the theme system (Strava, iOS style, Terminal green, Amber,
+Solarized, Gruvbox, Nord, Dracula). Phase 3: the whole 14-year history is on the phone (3,260 activities, about 208 MB)
+and matches the PC database on every compared field; folder import as a WorkManager job that resumes after a kill,
+same-run detection, rebuild from the original files, backup and restore. Next: phase 2, core analytics (resampling,
+load, curves, bests, thresholds), then phase 4 (heatmap). Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
+terrain elevation, phase 7). Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures and oracles made from the PC app
+are in `seed/` (`golden/`, `pc-activities.json`; gitignored).
 
-Code map: `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `Common` (moving
-time and the other PC helpers), `Routes`, `StreamCodec`, `Format`; `:data` `FitnessDatabase`, `ActivityRepository`,
-`ImportRunner`; `:app` `ui/theme/Theme.kt` (tokens), `ui/components/` (themed building blocks: use these, not raw
-Material, so a theme can change structure), `ui/activities/`, `ui/detail/`, `ui/settings/`. Display preferences are in
-SharedPreferences (`ui/Prefs.kt`); the street map is off by default and the app then makes no network requests.
+Code map: `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
+`Similar` (duplicate / same run / import, pure and shared with the tests), `Common` (moving time and the other PC helpers),
+`Routes`, `StreamCodec`, `Format`; `:data` `FitnessDatabase` (version 2, with a migration), `ActivityRepository`
+(import, rebuild, derived data), `FolderImporter`, `BackupManager`, `ImportRunner` (progress state); `:app`
+`work/BulkWorker.kt` (folder import, rebuild, restore as a foreground job), `ui/theme/Theme.kt` (tokens), `ui/components/`
+(themed building blocks: use these, not raw Material, so a theme can change structure), `ui/activities/`, `ui/detail/`,
+`ui/settings/`. Display preferences are in SharedPreferences (`ui/Prefs.kt`); the street map is off by default and the app
+then makes no network requests. The system file picker cannot hand over thousands of files at once: use the folder import.
+A repeat folder import only opens new or changed files (the `import_log` table); "Forget import history" resets that.
 
 ## Architecture (decided — don't re-litigate without reason)
 
@@ -235,7 +242,12 @@ public remote.
 
 Real test classes so far: `:core` `ImportParityTest` (all 77 FIT/GPX/TCX fixtures vs the PC: summary, streams, laps,
 routes), `ImportCorpusTest` (every file in `seed/imports` through the pipeline; a measurement that prints counts and
-failures), `PolylineTest`, `UnitsTest` (formatting, sports, stream codec, chart series); `:data` androidTest
-`ImportFlowTest` (import, duplicate, delete, failure against a real Room database) and `BlobLimitTest`
+failures), `FullHistoryParityTest` (replays the whole archive in the PC's order and compares every activity with
+`seed/pc-activities.json`, the PC database's activities table; needs that file), `PolylineTest`, `UnitsTest` (formatting,
+sports, stream codec, chart series, same-run rules); `:data` androidTest `ImportFlowTest` (import, duplicate, delete,
+failure), `BulkFlowTest` (same-run, rebuild, derived data, backup round trip, migration) and `BlobLimitTest`
 (`:data:connectedDebugAndroidTest`, needs the phone or emulator). Regenerate the fixtures on the PC with
-`venv\Scripts\python.exe -m tools.export_golden --out <FitnessTrackerAndroid>\seed\golden --full`.
+`venv\Scripts\python.exe -m tools.export_golden --out <FitnessTrackerAndroid>\seed\golden --full`, and the activities
+oracle by reading the PC's `data/fitness.db` read-only (`activities`, `laps` counts, `elevation_overrides`) into
+`seed/pc-activities.json`. To compare the phone with the PC after an import: pull `databases/fitness.db*` with
+`adb exec-out run-as app.fitness.android cat ...` and diff against that file.

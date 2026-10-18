@@ -3,6 +3,8 @@ package app.fitness.data
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import app.fitness.core.Importer
+import app.fitness.core.MatchMode
+import app.fitness.core.UntypedSport
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After

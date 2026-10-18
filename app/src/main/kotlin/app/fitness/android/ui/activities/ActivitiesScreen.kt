@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
@@ -61,10 +62,13 @@ fun ActivitiesScreen(
     vm: ActivitiesViewModel,
     importState: ImportState,
     fmt: Formatter,
-    onImport: () -> Unit,
+    actions: app.fitness.android.ui.ImportActions,
     onDismissImport: () -> Unit,
+    onCancelImport: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
+    var choosing by remember { mutableStateOf(false) }
+    val onImport = { choosing = true }
     val t = Fitness.theme
     val items by vm.items.collectAsStateWithLifecycle()
     val sports by vm.sports.collectAsStateWithLifecycle()
@@ -79,7 +83,7 @@ fun ActivitiesScreen(
             if (selection.isEmpty()) Header("Activities", total) else SelectionBar(
                 count = selection.size, onCancel = vm::clearSelection, onAll = vm::selectAll, onDelete = { confirmDelete = true })
             FilterRow(range, sport, sports, onRange = { vm.range.value = it }, onSport = { vm.sport.value = it })
-            if (importState.running || importState.finished) ImportBanner(importState, onDismissImport)
+            if (importState.running || importState.finished) ImportBanner(importState, onDismissImport, onCancelImport)
             val list = items
             when {
                 list == null -> Unit
@@ -109,6 +113,11 @@ fun ActivitiesScreen(
         }
     }
 
+    if (choosing) ImportChoiceDialog(
+        onFiles = { choosing = false; actions.files() },
+        onFolder = { choosing = false; actions.folder() },
+        onDismiss = { choosing = false },
+    )
     if (confirmDelete) DeleteDialog(
         count = selection.size,
         onConfirm = { confirmDelete = false; vm.deleteSelected() },
@@ -202,33 +211,70 @@ private fun EmptyState(hasAny: Boolean, onImport: () -> Unit, onShowAll: () -> U
     }
 }
 
+/** Pick files for a few, or a folder for many: the system picker cannot hand over thousands of files at once. */
 @Composable
-private fun ImportBanner(s: ImportState, onDismiss: () -> Unit) {
+private fun ImportChoiceDialog(onFiles: () -> Unit, onFolder: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import activities") },
+        text = {
+            Column {
+                Text("Choose a folder to import everything in it, including subfolders (for example a Strava export). It runs in the background.")
+                Text("Choose files for a handful of activities.", modifier = Modifier.padding(top = 8.dp))
+            }
+        },
+        confirmButton = { Row { QuietButton("Cancel", onDismiss); QuietButton("Files", onFiles); QuietButton("Folder", onFolder) } },
+    )
+}
+
+@Composable
+private fun ImportBanner(s: ImportState, onDismiss: () -> Unit, onCancel: () -> Unit) {
     val t = Fitness.theme
-    var showFailures by remember { mutableStateOf(false) }
+    var showDetails by remember { mutableStateOf(false) }
     ThemedCard(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
         if (s.running) {
-            Text("Importing ${s.done} of ${s.total}…", color = t.text, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (s.total > 0) "${s.title}: ${s.done} of ${s.total}" else "${s.title}…",
+                color = t.text, fontWeight = FontWeight.SemiBold,
+            )
             Box(Modifier.padding(top = 8.dp).fillMaxWidth().height(4.dp).background(t.divider)) {
-                Box(Modifier.fillMaxWidth(if (s.total > 0) s.done.toFloat() / s.total else 0f).height(4.dp).background(t.accent))
+                Box(Modifier.fillMaxWidth(if (s.total > 0) (s.done.toFloat() / s.total).coerceIn(0f, 1f) else 0f).height(4.dp).background(t.accent))
             }
+            Text(
+                listOfNotNull(
+                    "${s.imported} imported", s.duplicates.takeIf { it > 0 }?.let { "$it identical" }, s.sameRun.takeIf { it > 0 }?.let { "$it same run" },
+                    s.seenBefore.takeIf { it > 0 }?.let { "$it seen before" }, s.failed.size.takeIf { it > 0 }?.let { "$it failed" },
+                ).joinToString(" · "),
+                color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp),
+            )
+            QuietButton("Stop", onCancel)
         } else {
             Text(
-                "Imported ${s.imported}" + (if (s.duplicates > 0) ", ${s.duplicates} already there" else "") +
-                    (if (s.failed.isNotEmpty()) ", ${s.failed.size} failed" else ""),
+                (if (s.cancelled) "${s.title} stopped: " else "${s.title} done: ") + listOfNotNull(
+                    "${s.imported} imported", s.duplicates.takeIf { it > 0 }?.let { "$it already there" },
+                    s.sameRun.takeIf { it > 0 }?.let { "$it skipped as the same run" }, s.seenBefore.takeIf { it > 0 }?.let { "$it seen before" },
+                    s.failed.size.takeIf { it > 0 }?.let { "$it failed" },
+                ).joinToString(", "),
                 color = t.text, fontWeight = FontWeight.SemiBold,
             )
             Row {
-                if (s.failed.isNotEmpty()) QuietButton("Show failures", { showFailures = true })
+                if (s.failed.isNotEmpty() || s.notes.isNotEmpty()) QuietButton("Details", { showDetails = true })
                 QuietButton("Dismiss", onDismiss)
             }
         }
     }
-    if (showFailures) AlertDialog(
-        onDismissRequest = { showFailures = false },
-        confirmButton = { QuietButton("Close", { showFailures = false }) },
-        title = { Text("Files that could not be imported") },
-        text = { Column(Modifier.height(280.dp).horizontalScroll(rememberScrollState())) { s.failed.forEach { Text(it, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) } } },
+    if (showDetails) AlertDialog(
+        onDismissRequest = { showDetails = false },
+        confirmButton = { QuietButton("Close", { showDetails = false }) },
+        title = { Text("Details") },
+        text = {
+            Column(Modifier.height(320.dp).verticalScroll(rememberScrollState())) {
+                if (s.failed.isNotEmpty()) Text("Could not be imported", fontWeight = FontWeight.SemiBold)
+                s.failed.forEach { Text(it, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+                if (s.notes.isNotEmpty()) Text("Notes", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+                s.notes.forEach { Text(it, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+            }
+        },
     )
 }
 

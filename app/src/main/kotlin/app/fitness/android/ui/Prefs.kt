@@ -2,8 +2,9 @@ package app.fitness.android.ui
 
 import android.content.Context
 import app.fitness.android.ui.theme.Appearance
+import app.fitness.core.MatchMode
 import app.fitness.core.Units
-import app.fitness.data.UntypedSport
+import app.fitness.core.UntypedSport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -25,9 +26,14 @@ class Prefs(context: Context) {
         runCatching { Units.valueOf(sp.getString("units", Units.METRIC.name)!!) }.getOrDefault(Units.METRIC))
     val units: StateFlow<Units> = _units
 
+    /** On by default: an activity with no type is missing from every running analytic, which the PC's history avoided the same way. */
     private val _untyped = MutableStateFlow(
-        runCatching { UntypedSport.valueOf(sp.getString("untyped", UntypedSport.UNKNOWN.name)!!) }.getOrDefault(UntypedSport.UNKNOWN))
+        runCatching { UntypedSport.valueOf(sp.getString("untyped", UntypedSport.GUESS_FOOT.name)!!) }.getOrDefault(UntypedSport.GUESS_FOOT))
     val untyped: StateFlow<UntypedSport> = _untyped
+
+    private val _match = MutableStateFlow(
+        runCatching { MatchMode.valueOf(sp.getString("match", MatchMode.MOMENT.name)!!) }.getOrDefault(MatchMode.MOMENT))
+    val match: StateFlow<MatchMode> = _match
 
     /** Draw OpenStreetMap tiles under the route. Off by default: the app then makes no network requests at all. */
     private val _streetMap = MutableStateFlow(sp.getBoolean("street_map", false))
@@ -37,5 +43,6 @@ class Prefs(context: Context) {
     fun setAppearance(a: Appearance) { sp.edit().putString("appearance", a.name).apply(); _appearance.value = a }
     fun setUnits(u: Units) { sp.edit().putString("units", u.name).apply(); _units.value = u }
     fun setUntyped(u: UntypedSport) { sp.edit().putString("untyped", u.name).apply(); _untyped.value = u }
+    fun setMatch(m: MatchMode) { sp.edit().putString("match", m.name).apply(); _match.value = m }
     fun setStreetMap(on: Boolean) { sp.edit().putBoolean("street_map", on).apply(); _streetMap.value = on }
 }

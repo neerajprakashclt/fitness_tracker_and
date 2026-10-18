@@ -163,9 +163,9 @@
     <tr><td>C</td><td>Golden-fixture exporter (PC side)</td><td><span class="tag done">done</span></td><td>77 inputs, per-file + mini-history + full-history oracle, constants</td></tr>
     <tr><td>0</td><td>Spikes: FIT SDK on real files, Vico, MapLibre, Room; scaffold modules</td><td><span class="tag done">done</span></td><td>All go; streams become files, duration axis is ordinal</td></tr>
     <tr><td>1</td><td>Import and browse, with the theme system (Strava, iOS, Unix themes)</td><td><span class="tag done">done</span></td><td>Parse-level parity; list and detail correct; themes switch live</td></tr>
-    <tr><td>2</td><td>Core analytics (resampling, load, curves, charts)</td><td><span class="tag active">next</span></td><td>Layer 1 parity</td></tr>
-    <tr><td>3</td><td>Bulk import and rebuild, backup/export</td><td><span class="tag todo">planned</span></td><td>All 3,265 files import unattended and match the PC</td></tr>
-    <tr><td>4</td><td>Heatmap</td><td><span class="tag todo">planned</span></td><td>Smooth with all routes</td></tr>
+    <tr><td>2</td><td>Core analytics (resampling, load, curves, charts)</td><td><span class="tag active">next (after 3, by choice)</span></td><td>Layer 1 parity</td></tr>
+    <tr><td>3</td><td>Bulk import and rebuild, backup/export</td><td><span class="tag done">done</span></td><td>All 3,265 files import unattended and match the PC</td></tr>
+    <tr><td>4</td><td>Heatmap</td><td><span class="tag active">next</span></td><td>Smooth with all routes</td></tr>
     <tr><td>5</td><td>Log, zones, load safety, efficiency</td><td><span class="tag todo">planned</span></td><td>Layer 2 parity</td></tr>
     <tr><td>6</td><td>Running analytics</td><td><span class="tag todo">planned</span></td><td>Critical speed, run types, routes match PC</td></tr>
     <tr><td>7</td><td>Extras: CSV elevation, terrain, places, poster</td><td><span class="tag todo">planned</span></td><td>Per feature</td></tr>
@@ -458,6 +458,84 @@
   <p><strong>Phase 1 is complete.</strong> Known gaps carried forward: elevation for the Amazfit runs is empty until the optional Strava CSV and terrain features (phase 7);
      the iOS theme's feed still uses separate cards, so its grouped-list structure shows most in Settings; labels are English only.</p>
 
+
+  <h3>Phase 3: bulk import and rebuild <span class="entry-date">2026-10-18</span></h3>
+  <p>Goal: get all 14 years onto the phone, unattended, and prove it matches the PC. The user chose to do this before phase 2, since it needs nothing from the analytics.
+     First attempt: select all 3,265 files in the system file picker. It never reached the app (see issue F1), which is the reason the folder import below exists.</p>
+  <p><strong>What was built.</strong>
+     <code>:core</code>: same-run detection (<code>Similar</code>, a port of <code>similar.py</code>: moment, time-zone slip, same day; three modes) and a pure <code>ImportPlanner</code>
+     that decides duplicate, same run or import, shared by the app and the JVM tests.
+     <code>:data</code>: schema version 2 with an <code>import_log</code> table and a tested migration; <code>FolderImporter</code> (recursive walk of a folder the user picked,
+     PC file order, Strava-export layout, a log row per file so a run can resume and a repeat run only looks at new files);
+     rebuild from the archive (re-parse every original, keep identity and import date, deleted activities stay deleted); derived data (routes) rebuilt when missing or outdated at start-up;
+     backup as a zip of the originals and restore through the normal import path.
+     <code>:app</code>: a WorkManager foreground job (<code>BulkWorker</code>) for folder import, rebuild and restore with a progress notification and a Stop button,
+     a preview before importing (file counts by format, how many an earlier run handled), an import-or-folder chooser, and Settings controls for the same-run mode, rebuild, backup,
+     restore, forgetting the import history, and storage used.</p>
+
+  <h3>Phase 3 results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Replay of the whole archive vs the PC database</td><td><span class="tag done">pass</span></td>
+        <td>JVM test, PC order, no same-run skipping: 3,260 activities, the same set of file hashes as the PC's 3,260; sport, start, moving time, distance, device, lap count and elevation (except 414 the PC filled from Strava's CSV or terrain data, phase 7) match: 0 mismatches. 3 old Samsung Health files the PC left as "unknown" are labelled walking by the run/walk guess.</td></tr>
+    <tr><td>Same-run rule on this history</td><td><span class="tag done">as designed</span></td>
+        <td>With the default rule exactly two files are skipped: a swim recorded by both Apple Workout and Strava (same moment, same distance), and one of two Amazfit walks 13 h apart (650 m and 665 m) that the time-zone rule takes for one run. The PC database holds both because they were imported before it had that rule.</td></tr>
+    <tr><td>Full import on the phone (folder, unattended)</td><td><span class="tag done">pass</span></td>
+        <td>3,265 files in about 5 minutes (10 to 11 files per second, about 350 MB peak memory): 3,260 activities, 5 identical files. The database pulled from the phone matches the PC's on every activity.</td></tr>
+    <tr><td>Rebuild from the original files</td><td><span class="tag done">pass</span></td>
+        <td>3,260 re-parsed in about 3.5 minutes. It fixed 8 sport labels left over from the phase 1 test import (stored before the run/walk guess became the default); afterwards 0 mismatches against the PC.</td></tr>
+    <tr><td>Resume after the process is killed</td><td><span class="tag done">pass</span></td>
+        <td><code>kill -9</code> of the app during a run at about 1,000 files: the system restarted the job within seconds without the app being opened, 1,050 files were skipped from the import log without being read, the other 2,215 were checked, 3,265 in total.</td></tr>
+    <tr><td>Repeat run and notification</td><td><span class="tag done">pass</span></td>
+        <td>Running the same folder again: the preview says "Nothing new". With the history cleared, a full run over files already stored takes about 3.7 minutes. The notification shows "n of 3265" while it runs and is gone afterwards.</td></tr>
+    <tr><td>Database upgrade</td><td><span class="tag done">pass</span></td>
+        <td>The phone's version 1 database (99 activities) upgraded in place when the new build was installed; a migration test checks that the data survives.</td></tr>
+    <tr><td>Instrumented tests</td><td><span class="tag done">pass</span></td>
+        <td>11 on the phone: import, duplicates, delete and tombstones, failures, same-run skipping and its off switch, rebuild, routes rebuilt, backup and restore round trip (twice, adding nothing the second time), migration.</td></tr>
+    <tr><td>Storage for the whole history</td><td><span class="tag done">measured</span></td>
+        <td>About 208 MB: originals 118 MB, per-second data 83 MB, database 7 MB.</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) The history was imported with "Keep all" same-run matching, because every file in the archive was deliberately imported on the PC; the default for new files stays "Skip".
+     (2) The run/walk guess is now on by default: an untyped activity is missing from every running analytic, and the PC's history was imported that way.
+     (3) A repeat folder import only opens files whose size or date changed or that failed before; "Forget import history" in Settings makes it look at everything again. An activity the user deleted is not brought back by a repeat run.
+     (4) A backup is the originals plus a small metadata file, not a database copy: the database is derived, so restoring reuses the normal import path and is idempotent.
+     (5) The seed's <code>pc-side-data.json</code> (Strava CSV elevation, terrain elevation) is still not applied: it belongs to the optional phase 7 features.</p>
+
+  <h3>Issues in phase 3</h3>
+  <div class="issue">
+    <h4>Issue F1: selecting 3,265 files in the system file picker did nothing</h4>
+    <dl>
+      <dt>Symptom</dt><dd>After "Select" the app showed a black window and sat idle; no file was imported and no crash was logged.</dd>
+      <dt>Cause</dt><dd>Probably the size of the result: the picker returns one reference per file in a single handover, and thousands of them do not fit. Not proven, but a folder import (one reference, files listed on demand) has no such limit.</dd>
+      <dt>Solution</dt><dd>The folder import described above. The file picker stays for a handful of files, and the chooser says which to use.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue F2: the PC database contains runs its own rules would skip</h4>
+    <dl>
+      <dt>Symptom</dt><dd>The first end-to-end replay with the same-run rule on gave 3,258 activities, not the PC's 3,260.</dd>
+      <dt>Cause</dt><dd>Two pairs were imported on the PC before it had the same-run rule. One is a real duplicate (one swim, two apps); the other is two real walks that the 13-hour time-zone rule cannot tell from one run recorded with a wrong clock.</dd>
+      <dt>Solution</dt><dd>The comparison runs with the rule off, and a second check pins down that the rule skips exactly those two files. The rule is kept as the PC has it; if the false positive matters, tighten it on both apps together.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue F3: a stale "ongoing" notification stayed after the job ended</h4>
+    <dl>
+      <dt>Symptom</dt><dd>After a run, the notification manager still held the progress notification.</dd>
+      <dt>Cause</dt><dd>A progress update posted after the system had already removed the foreground notification put it back.</dd>
+      <dt>Solution</dt><dd>The worker waits for its update loop to stop and then cancels the notification itself. Checked with <code>dumpsys notification</code> during and after a run.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue F4: settings changed by test taps</h4>
+    <dl>
+      <dt>Symptom</dt><dd>After the first scripted run, the phone showed miles and a forced dark appearance.</dd>
+      <dt>Cause</dt><dd>Taps sent by the test script landed on the settings screen. The cause of those two particular taps was not found.</dd>
+      <dt>Solution</dt><dd>Both were set back to Metric and System. Test scripts now look up buttons by their text instead of using fixed coordinates where the screen can change.</dd>
+    </dl>
+  </div>
+  <p><strong>Phase 3 is complete.</strong> The minimum useful app is closer: everything is on the phone and matches the PC; what is still missing is the analytics (load, curves, bests, thresholds) in phase 2.</p>
+
   <!-- LOG-ENTRIES-END -->
 </section>
 
@@ -486,6 +564,10 @@
     <tr><td>E2</td><td>Fixture <code>sha256_raw</code> is the compressed hash</td><td><span class="tag done">test adjusted</span></td></tr>
     <tr><td>E3</td><td>Picker Downloads root hides adb-pushed files</td><td><span class="tag done">use the storage root</span></td></tr>
     <tr><td>E4</td><td>Tooling traps (Gradle cache, path mangling, JUnit void)</td><td><span class="tag done">worked around</span></td></tr>
+    <tr><td>F1</td><td>File picker cannot hand over thousands of files</td><td><span class="tag done">folder import</span></td></tr>
+    <tr><td>F2</td><td>PC database holds runs its own same-run rule would skip</td><td><span class="tag done">documented, pinned by a test</span></td></tr>
+    <tr><td>F3</td><td>Stale ongoing notification after a job</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>F4</td><td>Settings changed by test taps</td><td><span class="tag done">reset</span></td></tr>
   </table>
 </section>
 
@@ -504,6 +586,8 @@
     <tr><td>2026-10-17</td><td>Golden fixtures kept in the gitignored <code>seed/</code> folder, not in test resources</td><td>Inputs are personal data; copy selected ones into test resources only with explicit approval.</td></tr>
     <tr><td>2026-10-18</td><td>Routes are derived at import (not in phase 2); street map tiles are opt-in, off by default</td><td>The feed and detail map need routes now; with tiles off the app makes no network requests.</td></tr>
     <tr><td>2026-10-18</td><td>Display preferences in SharedPreferences; training settings stay in the database (phase 2)</td><td>Prefs are per device and never sync; thresholds are data.</td></tr>
+    <tr><td>2026-10-18</td><td>Phase 3 before phase 2; history imported with "Keep all" same-run matching; run/walk guess on by default</td><td>The user chose the order; the archive is already curated by the PC; untyped activities are useless to the analytics.</td></tr>
+    <tr><td>2026-10-18</td><td>Backup is a zip of the original files; restore goes through the normal import</td><td>The database is derived, so this is smaller, idempotent and survives schema changes.</td></tr>
   </table>
 </section>
 

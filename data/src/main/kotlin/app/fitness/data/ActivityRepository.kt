@@ -1,13 +1,21 @@
 package app.fitness.data
 
 import androidx.room.withTransaction
+import app.fitness.core.ActivityLookup
 import app.fitness.core.Common
+import app.fitness.core.ImportDecision
 import app.fitness.core.ImportFailed
+import app.fitness.core.ImportPlanner
 import app.fitness.core.Importer
+import app.fitness.core.MatchMode
 import app.fitness.core.ParsedActivity
 import app.fitness.core.Routes
+import app.fitness.core.SimilarCandidate
+import app.fitness.core.SimilarKind
+import app.fitness.core.SimilarMatch
 import app.fitness.core.StreamCodec
 import app.fitness.core.Times
+import app.fitness.core.UntypedSport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -20,14 +28,14 @@ import java.time.Instant
 
 /** What importing one file did. */
 sealed interface ImportOutcome {
-    data class Imported(val fileHash: String, val sport: String) : ImportOutcome
+    /** [kept] is a same-day lookalike that was judged a separate run, for the report. */
+    data class Imported(val fileHash: String, val sport: String, val kept: SimilarMatch? = null) : ImportOutcome
     /** The same file (by content) is already in the database. */
     data class Duplicate(val fileHash: String) : ImportOutcome
+    /** The same run as a stored activity, from another source (see `Similar`). Not imported. */
+    data class SameRun(val existingHash: String, val kind: SimilarKind, val offsetSeconds: Double) : ImportOutcome
     data class Failed(val reason: String) : ImportOutcome
 }
-
-/** The sport stored for a file whose format records none: leave it "unknown", or guess running/walking from pace. */
-enum class UntypedSport { UNKNOWN, GUESS_FOOT }
 
 /** A single entry of the activity feed. */
 class ActivityListItem(
@@ -64,6 +72,14 @@ class LapItem(
 
 class ActivityDetail(val activity: ActivityListItem, val laps: List<LapItem>, val importedAt: String)
 
+/** What a rebuild from the archive did. */
+class RebuildResult(val rebuilt: Int, val skippedDeleted: Int, val failed: List<String>)
+
+/** Disk used by the app's own data, in bytes. */
+class StorageUsage(val archive: Long, val streams: Long, val database: Long) {
+    val total get() = archive + streams + database
+}
+
 /**
  * Where activities come from and go to. Raw files are archived in `filesDir/imports/` so the database can always be
  * rebuilt from them (and are kept when an activity is deleted, as on the PC); streams are gzipped JSON in
@@ -75,38 +91,110 @@ class ActivityRepository(private val db: FitnessDatabase, private val filesDir: 
     private val streamsDir = File(filesDir, "streams").apply { mkdirs() }
     private val json = Json
 
-    suspend fun import(filename: String, data: ByteArray, untyped: UntypedSport = UntypedSport.UNKNOWN): ImportOutcome =
-        withContext(Dispatchers.IO) {
-            try {
-                val decoded = Importer.decode(filename, data)
-                if (dao.exists(decoded.fileHash)) return@withContext ImportOutcome.Duplicate(decoded.fileHash)
-                val parsed = Importer.parse(decoded, filename)
-                val sport = if (untyped == UntypedSport.GUESS_FOOT && parsed.sport == "unknown")
-                    Common.inferFootSport(parsed.distance, parsed.duration) else parsed.sport
-                store(decoded.fileHash, filename, data, parsed, sport)
-                ImportOutcome.Imported(decoded.fileHash, sport)
-            } catch (e: ImportFailed) {
-                ImportOutcome.Failed(e.message ?: "Import failed")
+    internal fun dao() = dao
+    internal fun archiveFiles(): List<File> = importsDir.listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
+
+    private val lookup = object : ActivityLookup {
+        override suspend fun exists(fileHash: String) = dao.exists(fileHash)
+        override suspend fun candidates(sport: String, anySport: Boolean, fromDate: String, toDate: String): List<SimilarCandidate> =
+            dao.candidates(sport, anySport, fromDate, toDate).mapNotNull { r ->
+                Times.parse(r.startTime)?.let { SimilarCandidate(r.fileHash, it, r.distance) }
             }
+    }
+
+    suspend fun import(
+        filename: String,
+        data: ByteArray,
+        untyped: UntypedSport = UntypedSport.UNKNOWN,
+        match: MatchMode = MatchMode.MOMENT,
+    ): ImportOutcome = withContext(Dispatchers.IO) {
+        try {
+            when (val d = ImportPlanner.plan(filename, data, lookup, untyped, match)) {
+                is ImportDecision.Duplicate -> ImportOutcome.Duplicate(d.fileHash)
+                is ImportDecision.SameRun -> ImportOutcome.SameRun(d.match.fileHash, d.match.kind, d.match.offsetSeconds)
+                is ImportDecision.Import -> {
+                    store(d.fileHash, filename, data, d.activity, d.sport)
+                    ImportOutcome.Imported(d.fileHash, d.sport, d.kept)
+                }
+            }
+        } catch (e: ImportFailed) {
+            ImportOutcome.Failed(e.message ?: "Import failed")
         }
+    }
+
+    /** Writes the streams file, and the archived original when one is given. Returns the archive name. */
+    private fun writeFiles(hash: String, filename: String?, original: ByteArray?, a: ParsedActivity): String? {
+        val archiveName = if (filename != null && original != null) Importer.archiveName(hash, filename) else null
+        if (archiveName != null) File(importsDir, archiveName).writeBytes(original!!)
+        val target = File(streamsDir, "$hash.json.gz")
+        File(streamsDir, "$hash.json.gz.tmp").also { it.writeBytes(StreamCodec.encode(a.streams)); it.renameTo(target) }
+        return archiveName
+    }
 
     private suspend fun store(hash: String, filename: String, original: ByteArray, a: ParsedActivity, sport: String) {
-        val archiveName = Importer.archiveName(hash, filename)
-        File(importsDir, archiveName).writeBytes(original)
-        val streams = File(streamsDir, "$hash.json.gz")
-        File(streamsDir, "$hash.json.gz.tmp").also { it.writeBytes(StreamCodec.encode(a.streams)); it.renameTo(streams) }
+        val archiveName = writeFiles(hash, filename, original, a)!!
         val now = Times.format(Instant.now())
-        val route = Routes.segments(a.streams)
         db.withTransaction {
             dao.insert(ActivityEntity(hash, sport, Times.format(a.startTime), a.duration, a.distance, a.elevationGain,
                 a.device, "imports/$archiveName", now))
-            dao.insertLaps(a.laps.map {
-                LapEntity(hash, it.index, it.startTime?.let(Times::format), it.duration, it.distance, it.avgHeartRate,
-                    it.maxHeartRate, it.avgPower, it.avgSpeed, it.elevationGain)
-            })
-            dao.putRoute(RouteEntity(hash, Routes.VERSION, json.encodeToString(ListSerializer(String.serializer()), route)))
+            writeChildren(hash, a)
             dao.log(ChangeEntity(entity = "activity", key = hash, op = "put", changedAt = now))
         }
+    }
+
+    private suspend fun writeChildren(hash: String, a: ParsedActivity) {
+        dao.insertLaps(a.laps.map {
+            LapEntity(hash, it.index, it.startTime?.let(Times::format), it.duration, it.distance, it.avgHeartRate,
+                it.maxHeartRate, it.avgPower, it.avgSpeed, it.elevationGain)
+        })
+        dao.putRoute(RouteEntity(hash, Routes.VERSION, json.encodeToString(ListSerializer(String.serializer()), Routes.segments(a.streams))))
+    }
+
+    /**
+     * Re-parse every archived file and overwrite its activity, keeping its identity and import date: how a parser fix
+     * reaches existing data (PC: reparse). An activity the user deleted stays deleted. Derived data is rebuilt too.
+     */
+    suspend fun rebuild(untyped: UntypedSport, onProgress: suspend (done: Int, total: Int) -> Unit = { _, _ -> }): RebuildResult =
+        withContext(Dispatchers.IO) {
+            val files = archiveFiles()
+            var rebuilt = 0
+            var skipped = 0
+            val failed = mutableListOf<String>()
+            for ((i, f) in files.withIndex()) {
+                try {
+                    val decoded = Importer.decode(f.name, f.readBytes())
+                    val existing = dao.get(decoded.fileHash)
+                    if (existing == null) { skipped++ } else {
+                        val parsed = Importer.parse(decoded, f.name)
+                        val sport = if (untyped == UntypedSport.GUESS_FOOT && parsed.sport == "unknown")
+                            Common.inferFootSport(parsed.distance, parsed.duration) else parsed.sport
+                        writeFiles(decoded.fileHash, null, null, parsed)
+                        db.withTransaction {
+                            dao.insertOrReplace(existing.copy(sport = sport, startTime = Times.format(parsed.startTime), duration = parsed.duration,
+                                distance = parsed.distance, elevationGain = parsed.elevationGain, device = parsed.device))
+                            dao.deleteLaps(decoded.fileHash)
+                            writeChildren(decoded.fileHash, parsed)
+                        }
+                        rebuilt++
+                    }
+                } catch (e: ImportFailed) {
+                    failed += "${f.name}: ${e.message}"
+                }
+                if (i % 25 == 0) onProgress(i + 1, files.size)
+            }
+            onProgress(files.size, files.size)
+            RebuildResult(rebuilt, skipped, failed)
+        }
+
+    /** Build routes that are missing or made by older logic. Cheap when nothing is outdated, so safe to call at start-up. */
+    suspend fun ensureDerived(): Int = withContext(Dispatchers.IO) {
+        var built = 0
+        for (hash in dao.routesToBuild(Routes.VERSION)) {
+            val streams = File(streamsDir, "$hash.json.gz").takeIf { it.exists() }?.let { StreamCodec.decode(it.readBytes()) } ?: continue
+            dao.putRoute(RouteEntity(hash, Routes.VERSION, json.encodeToString(ListSerializer(String.serializer()), Routes.segments(streams))))
+            built++
+        }
+        built
     }
 
     /** Delete activities in one transaction. The raw files stay in `imports/`; each delete leaves a tombstone. */
@@ -137,6 +225,14 @@ class ActivityRepository(private val db: FitnessDatabase, private val filesDir: 
     /** The activity's per-second streams, or null when its file is missing. */
     suspend fun streams(hash: String): Map<String, DoubleArray>? = withContext(Dispatchers.IO) {
         File(streamsDir, "$hash.json.gz").takeIf { it.exists() }?.let { StreamCodec.decode(it.readBytes()) }
+    }
+
+    /** Forget which folder files were seen, so the next folder import looks at every file again. */
+    suspend fun clearImportLog() = dao.clearLog()
+
+    suspend fun storageUsage(databaseFile: File?): StorageUsage = withContext(Dispatchers.IO) {
+        fun size(dir: File) = dir.listFiles()?.sumOf { it.length() } ?: 0L
+        StorageUsage(size(importsDir), size(streamsDir), databaseFile?.let { f -> listOf("", "-wal", "-shm").sumOf { File(f.path + it).length() } } ?: 0L)
     }
 
     private fun toItem(r: ActivityListRow) = ActivityListItem(

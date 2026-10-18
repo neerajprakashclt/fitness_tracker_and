@@ -94,3 +94,41 @@ class ChartSeriesTest {
         assertEquals(4, ChartSeries.indexAtTime(t, 99.0))
     }
 }
+
+class SimilarTest {
+    private val t0 = java.time.Instant.parse("2026-05-01T12:00:00Z")
+    private val ny = java.time.ZoneId.of("America/New_York")
+
+    @Test
+    fun classifiesHowTwoStartsRelate() {
+        assertEquals(SimilarKind.MOMENT, Similar.classify(t0.plusSeconds(90), t0, ny))
+        assertEquals(SimilarKind.MOMENT, Similar.classify(t0.minusSeconds(120), t0, ny))
+        // Local time written as if it were UTC: exactly four hours off (New York in summer).
+        assertEquals(SimilarKind.ZONE, Similar.classify(t0.plusSeconds(4 * 3600 + 30), t0, ny))
+        assertEquals(SimilarKind.ZONE, Similar.classify(t0.minusSeconds(5 * 3600), t0, ny))
+        // Three hours apart and 4 minutes apart on one day are separate runs unless day mode is on.
+        assertEquals(SimilarKind.DAY, Similar.classify(t0.plusSeconds(3 * 3600 + 400), t0, ny))
+        assertEquals(SimilarKind.DAY, Similar.classify(t0.plusSeconds(240), t0, ny))
+        assertEquals(null, Similar.classify(t0.plusSeconds(30 * 3600 + 600), t0, ny))
+    }
+
+    @Test
+    fun findsTheStrongestMatchAndHonoursTheMode() {
+        val near = SimilarCandidate("a", t0.plusSeconds(60), 5000.0)
+        val farDistance = SimilarCandidate("b", t0, 9000.0)
+        val zoneSlip = SimilarCandidate("c", t0.minusSeconds(4 * 3600), 5100.0)
+        val m = Similar.find(t0, 5050.0, listOf(zoneSlip, farDistance, near), ny)!!
+        assertEquals("a", m.fileHash)
+        assertEquals(SimilarKind.MOMENT, m.kind)
+        assertEquals(-60.0, m.offsetSeconds)
+
+        // A timezone slip needs a closer distance (5%) than a same-moment match (10%).
+        assertEquals(null, Similar.find(t0, 5000.0, listOf(SimilarCandidate("z", t0.minusSeconds(4 * 3600), 5400.0)), ny))
+        assertEquals(null, Similar.find(t0, null, listOf(near), ny))
+
+        assertEquals(true, Similar.skips(SimilarKind.ZONE, MatchMode.MOMENT))
+        assertEquals(false, Similar.skips(SimilarKind.DAY, MatchMode.MOMENT))
+        assertEquals(true, Similar.skips(SimilarKind.DAY, MatchMode.DAY))
+        assertEquals(false, Similar.skips(SimilarKind.MOMENT, MatchMode.OFF))
+    }
+}
