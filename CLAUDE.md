@@ -221,8 +221,9 @@ public remote.
   services. The only network permission is for map tiles.
 - Compose screens take state from a ViewModel. Business logic lives in `:core`/`:data`,
   never in composables.
-- Metric units, formatted in `:core`: pace "m:ss /km" for run/walk/hike and km/h for
-  everything else. This matches the PC app.
+- Units are formatted in `:core` (`Formatter`) and chosen in Settings; the default is **imperial** (the user's choice,
+  2026-10-18): pace "m:ss /mi" for run/walk/hike and mph for everything else. Metric gives "m:ss /km" and km/h, as the
+  PC app does. Storage and every calculation stay metric.
 - Recompute derived data after imports, deletes and settings changes, as one
   WorkManager job (PC: `recompute_all`).
 - Android Studio and the Android SDK run on Windows here. Use `gradlew.bat`, or

@@ -22,8 +22,9 @@ class Prefs(context: Context) {
         runCatching { Appearance.valueOf(sp.getString("appearance", Appearance.SYSTEM.name)!!) }.getOrDefault(Appearance.SYSTEM))
     val appearance: StateFlow<Appearance> = _appearance
 
+    /** Imperial by default (the user's choice); metric is one tap away in Settings. Storage is always metric. */
     private val _units = MutableStateFlow(
-        runCatching { Units.valueOf(sp.getString("units", Units.METRIC.name)!!) }.getOrDefault(Units.METRIC))
+        runCatching { Units.valueOf(sp.getString("units", Units.IMPERIAL.name)!!) }.getOrDefault(Units.IMPERIAL))
     val units: StateFlow<Units> = _units
 
     /** On by default: an activity with no type is missing from every running analytic, which the PC's history avoided the same way. */

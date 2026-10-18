@@ -527,11 +527,11 @@
     </dl>
   </div>
   <div class="issue">
-    <h4>Issue F4: settings changed by test taps</h4>
+    <h4>Issue F4: I reset settings the user had chosen</h4>
     <dl>
-      <dt>Symptom</dt><dd>After the first scripted run, the phone showed miles and a forced dark appearance.</dd>
-      <dt>Cause</dt><dd>Taps sent by the test script landed on the settings screen. The cause of those two particular taps was not found.</dd>
-      <dt>Solution</dt><dd>Both were set back to Metric and System. Test scripts now look up buttons by their text instead of using fixed coordinates where the screen can change.</dd>
+      <dt>Symptom</dt><dd>After the first scripted run the phone showed miles and the Dark appearance. I took them for stray test taps and set them back to Metric and System.</dd>
+      <dt>Cause</dt><dd>The user had changed them on purpose while the import ran. I assumed instead of asking, and overrode their choice.</dd>
+      <dt>Solution</dt><dd>Restored Imperial and Dark on the phone, and made imperial the default for a fresh install. Lesson: never reset a setting I did not change myself; ask.</dd>
     </dl>
   </div>
   <p><strong>Phase 3 is complete.</strong> The minimum useful app is closer: everything is on the phone and matches the PC; what is still missing is the analytics (load, curves, bests, thresholds) in phase 2.</p>
@@ -567,7 +567,7 @@
     <tr><td>F1</td><td>File picker cannot hand over thousands of files</td><td><span class="tag done">folder import</span></td></tr>
     <tr><td>F2</td><td>PC database holds runs its own same-run rule would skip</td><td><span class="tag done">documented, pinned by a test</span></td></tr>
     <tr><td>F3</td><td>Stale ongoing notification after a job</td><td><span class="tag done">fixed</span></td></tr>
-    <tr><td>F4</td><td>Settings changed by test taps</td><td><span class="tag done">reset</span></td></tr>
+    <tr><td>F4</td><td>I reset settings the user had chosen</td><td><span class="tag done">restored; imperial is now the default</span></td></tr>
   </table>
 </section>
 
@@ -587,6 +587,7 @@
     <tr><td>2026-10-18</td><td>Routes are derived at import (not in phase 2); street map tiles are opt-in, off by default</td><td>The feed and detail map need routes now; with tiles off the app makes no network requests.</td></tr>
     <tr><td>2026-10-18</td><td>Display preferences in SharedPreferences; training settings stay in the database (phase 2)</td><td>Prefs are per device and never sync; thresholds are data.</td></tr>
     <tr><td>2026-10-18</td><td>Phase 3 before phase 2; history imported with "Keep all" same-run matching; run/walk guess on by default</td><td>The user chose the order; the archive is already curated by the PC; untyped activities are useless to the analytics.</td></tr>
+    <tr><td>2026-10-18</td><td>Imperial units are the default (metric stays one tap away)</td><td>User request. Storage and calculations stay metric.</td></tr>
     <tr><td>2026-10-18</td><td>Backup is a zip of the original files; restore goes through the normal import</td><td>The database is derived, so this is smaller, idempotent and survives schema changes.</td></tr>
   </table>
 </section>
