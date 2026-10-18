@@ -48,7 +48,7 @@ import app.fitness.core.Units
 import app.fitness.core.UntypedSport
 
 @Composable
-fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?) {
+fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?, onPoster: () -> Unit) {
     val t = Fitness.theme
     val prefs = app.prefs
     val match by prefs.match.collectAsStateWithLifecycle()
@@ -135,6 +135,11 @@ fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?)
             )
         }
 
+        SectionHeader("Extras")
+        ThemedCard {
+            ActionRow("Running-life poster", "Every run you have done as one picture: rings, spiral, routes, cities. Saves as an image.", onPoster)
+        }
+
         SectionHeader("Map")
         ThemedCard {
             SwitchRow(
@@ -147,7 +152,8 @@ fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?)
         ThemedCard {
             Text("${activityCount ?: 0} activities on this phone", color = t.text, fontSize = 16.sp)
             Text(
-                "Everything is stored in this app's private storage: no account, no server. Uninstalling the app deletes it.",
+                "Everything is stored in this app's private storage: no account, no server. Uninstalling the app deletes it. " +
+                    "City names on the poster come from GeoNames (geonames.org, CC BY 4.0), bundled in the app.",
                 color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp),
             )
         }

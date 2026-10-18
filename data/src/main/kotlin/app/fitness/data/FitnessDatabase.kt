@@ -222,7 +222,7 @@ interface ActivityDao {
         ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class,
         MetricsEntity::class, BestsEntity::class, DailyLoadEntity::class, SettingEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class FitnessDatabase : RoomDatabase() {
@@ -260,8 +260,19 @@ abstract class FitnessDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 4 added the running profile (speed histogram, interval reps) to the metrics. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `activity_metrics` ADD COLUMN `speed_hist` TEXT")
+                db.execSQL("ALTER TABLE `activity_metrics` ADD COLUMN `reps` TEXT")
+                // The stored metrics lack the profile: drop them so the next start rebuilds them from the stream files.
+                db.execSQL("DELETE FROM `activity_metrics`")
+                db.execSQL("DELETE FROM `activity_bests`")
+            }
+        }
+
         fun create(context: Context): FitnessDatabase =
             Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     }
 }

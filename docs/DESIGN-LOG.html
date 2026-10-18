@@ -579,7 +579,26 @@
       <dt>Solution</dt><dd>Chart times are rounded to whole seconds; a unit test covers a 15,000-sample activity. Checked on the phone with the marathon.</dd>
     </dl>
   </div>
-  <p>Next: the analytics the poster is missing (run types, critical speed, route matching, places), then the heatmap (phase 4) when wanted.</p>
+
+  <h3>Poster analytics <span class="entry-date">2026-10-18</span></h3>
+  <p>The poster needed analytics that were not ported yet, so they were done next, each checked against the PC.
+     <code>RunProfile</code> (moving-speed histogram and candidate interval reps), <code>CriticalSpeed</code> (the 3 to 20 minute fit, windowed by date, pace zones), <code>Zones</code>, <code>RunTypes</code> (intervals, long, tempo, easy, steady, unknown, judged against fitness on the day),
+     <code>RouteMatch</code> (32-point signatures, greedy grouping) and <code>Places</code> (nearest place in a bundled copy of GeoNames cities1000, then folding nearby places into one city).
+     Database version 4 keeps the speed histogram and reps with the metrics; the metrics are rebuilt once from the stream files after the update (about 2 minutes, in the background).
+     Settings now has an Extras section that opens the poster, and the About text credits GeoNames (CC BY 4.0).</p>
+  <h3>Poster analytics results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Speed histogram and interval reps, 77 files</td><td><span class="tag done">pass</span></td><td>All equal the PC's (the reps on the 3 files that have them, within 1e-9).</td></tr>
+    <tr><td>Critical speed today</td><td><span class="tag done">pass</span></td><td>CS, D', points, window, R squared and note equal the fixture.</td></tr>
+    <tr><td>Run type of every run</td><td><span class="tag done">pass</span></td><td>1,261 runs: easy 528, tempo 354, long 194, steady 150, intervals 35; type, basis and easy/hard shares equal the PC's. Runs recorded at the same moment come out in a different order, so the comparison sorts by date, distance and duration.</td></tr>
+    <tr><td>Route groups</td><td><span class="tag done">pass</span></td><td>828 groups, 106 repeated (2 or more runs), 378 runs in them; the 50 largest equal the PC's in run count, first and last date and first run's track.</td></tr>
+    <tr><td>Places</td><td><span class="tag done">pass</span></td><td>All 1,132 routes with GPS list the same places as the PC's stored ones; the 21 cities and their runs per year match (cities with equal counts have no defined order in the PC, so the test sorts them by name).</td></tr>
+    <tr><td>On the phone</td><td><span class="tag done">pass</span></td><td>Upgrade 3 to 4 tested; the poster shows run-type colours, tempo stripes, the routes you keep coming back to and "21 cities in 3 countries".</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) Efficiency and aerobic decoupling are still not ported: the poster does not use them. (2) The gazetteer is a 2 MB gzipped text resource in <code>:core</code> instead of a database, searched by a one-degree grid with the same nearest-by-degrees rule as the PC's k-d tree.
+     (3) Cities are worked out when the poster opens, not stored (about a second), so there is nothing more to migrate.</p>
+  <p>Next: the screens for what is now computed but not shown (run type on each activity, critical speed and pace zones, efficiency, route progress), or the heatmap (phase 4).</p>
 
   <!-- LOG-ENTRIES-END -->
 </section>

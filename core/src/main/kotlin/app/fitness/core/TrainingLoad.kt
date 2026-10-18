@@ -16,6 +16,10 @@ class StreamMetrics(
     val hrMax: Double? = null,
     /** Seconds spent at each whole bpm. */
     val hrHist: Map<Int, Double>? = null,
+    /** Seconds moving at each tenth of a m/s. */
+    val speedHist: Map<Int, Double>? = null,
+    /** Candidate interval reps; only worked out for running. */
+    val reps: List<Rep>? = null,
 )
 
 enum class LoadMethod(val label: String) { POWER("power"), HR("hr"), DURATION("duration") }
@@ -53,7 +57,7 @@ object TrainingLoad {
     const val KEY_THRESHOLD_HR = "threshold_hr"
     val SETTING_KEYS = listOf(KEY_FTP, KEY_MAX_HR, KEY_RESTING_HR, KEY_THRESHOLD_HR)
 
-    fun streamMetrics(streams: Map<String, DoubleArray>): StreamMetrics {
+    fun streamMetrics(streams: Map<String, DoubleArray>, sport: String? = null): StreamMetrics {
         val time = streams[StreamKeys.TIME] ?: return StreamMetrics()
         if (time.isEmpty()) return StreamMetrics()
         var np: Double? = null
@@ -84,7 +88,8 @@ object TrainingLoad {
                 hrMax = percentile(hr.filter { !it.isNaN() && it > 0 }.sorted(), 99.0)
             }
         }
-        return StreamMetrics(np, powerSeconds, best20, hrMax, hist)
+        val reps = if (sport == "running") RunProfile.detectReps(time, streams["speed"]).takeIf { it.isNotEmpty() } else null
+        return StreamMetrics(np, powerSeconds, best20, hrMax, hist, RunProfile.speedHistogram(time, streams["speed"]), reps)
     }
 
     /** Means of every full window, like pandas `rolling(w).mean().dropna()`. */

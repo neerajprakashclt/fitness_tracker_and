@@ -31,6 +31,10 @@ data class MetricsEntity(
     @ColumnInfo(name = "hr_hist") val hrHist: String?,
     val load: Double?,
     @ColumnInfo(name = "load_method") val loadMethod: String?,
+    /** JSON object: tenths of m/s to seconds spent moving at that speed. */
+    @ColumnInfo(name = "speed_hist") val speedHist: String? = null,
+    /** JSON array of candidate interval reps (running only). */
+    val reps: String? = null,
 )
 
 /** Best efforts of one activity as JSON: `{"power": {"5": w}, "speed": {"60": m/s}, "distance_time": {"5000.0": s}}`. */
@@ -93,12 +97,15 @@ data class PosterRow(
     val duration: Double?,
     val load: Double?,
     val polyline: String?,
+    @ColumnInfo(name = "speed_hist") val speedHist: String?,
+    @ColumnInfo(name = "hr_hist") val hrHist: String?,
+    val reps: String?,
 )
 
 @Dao
 interface AnalyticsDao {
     @Query(
-        """SELECT a.file_hash, a.start_time, a.distance, a.duration, m.load, r.polyline FROM activities a
+        """SELECT a.file_hash, a.start_time, a.distance, a.duration, m.load, r.polyline, m.speed_hist, m.hr_hist, m.reps FROM activities a
            LEFT JOIN activity_metrics m ON m.file_hash = a.file_hash LEFT JOIN routes r ON r.file_hash = a.file_hash
            WHERE a.sport = 'running' ORDER BY a.start_time"""
     )

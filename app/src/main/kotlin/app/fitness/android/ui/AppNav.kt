@@ -91,7 +91,7 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
                 composable(Routes.POSTER) { PosterScreen(app.analytics, units) { nav.popBackStack() } }
                 composable(Routes.SETTINGS) {
                     val count by app.repository.count().collectAsStateWithLifecycle(initialValue = null)
-                    SettingsScreen(app, actions, count)
+                    SettingsScreen(app, actions, count) { nav.navigate(Routes.POSTER) }
                 }
             }
         }

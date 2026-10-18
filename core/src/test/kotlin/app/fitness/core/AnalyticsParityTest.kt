@@ -51,13 +51,19 @@ class AnalyticsParityTest {
             val name = entry["input"].str()!!
             val a = Importer.parse(name, Golden.rawBytes(name))
             val want = entry.obj("metrics")
-            val m = TrainingLoad.streamMetrics(a.streams)
+            val m = TrainingLoad.streamMetrics(a.streams, a.sport)
             bad.check("$name NP", close(want["normalized_power"].num(), m.normalizedPower, 1e-9, 1e-9)) { "pc=${want["normalized_power"].num()} kotlin=${m.normalizedPower}" }
             bad.check("$name power secs", close(want["power_seconds"].num(), m.powerSeconds)) { "pc=${want["power_seconds"].num()} kotlin=${m.powerSeconds}" }
             bad.check("$name best20", close(want["best_20min_power"].num(), m.best20minPower, 1e-9, 1e-9)) { "pc=${want["best_20min_power"].num()} kotlin=${m.best20minPower}" }
             bad.check("$name hr_max", close(want["hr_max"].num(), m.hrMax, 1e-9, 1e-9)) { "pc=${want["hr_max"].num()} kotlin=${m.hrMax}" }
             bad.check("$name hr_hist", histOf(want["hr_hist"].str()) == m.hrHist) { "differs" }
 
+            bad.check("$name speed_hist", histOf(want["speed_hist"].str()) == m.speedHist) { "differs" }
+            val wantReps = want["reps"].str()?.let { (Json.parseToJsonElement(it) as kotlinx.serialization.json.JsonArray).map { r -> r.jsonObject } } ?: emptyList()
+            val gotReps = m.reps ?: emptyList()
+            bad.check("$name reps", wantReps.size == gotReps.size && wantReps.zip(gotReps).all { (w, g) ->
+                w["start"].num()!!.toInt() == g.start && w["duration"].num()!!.toInt() == g.duration && close(w["speed"].num(), g.speed, 1e-9, 1e-9) &&
+                    w["recovery"].num()?.toInt() == g.recovery && close(w["recovery_speed"].num(), g.recoverySpeed, 1e-9, 1e-9) }) { "pc=${wantReps.size} kotlin=${gotReps.size}" }
             compareBests(name, entry.obj("bests"), Curves.bestEfforts(a.sport, a.streams), bad)
 
             val wantLoad = entry.obj("load")
@@ -91,7 +97,7 @@ class AnalyticsParityTest {
         val want = Golden.root.obj("full_history")
         val today = LocalDate.parse(want["today"].str()!!)
 
-        class Row(val hash: String, val sport: String, val start: java.time.Instant, val date: LocalDate, val duration: Double?, val metrics: StreamMetrics, val bests: Bests)
+        class Row(val hash: String, val sport: String, val start: java.time.Instant, val date: LocalDate, val distance: Double?, val duration: Double?, val metrics: StreamMetrics, val bests: Bests, val polylines: List<String>)
 
         fun activityId(name: String): Long =
             Regex("^[0-9]+").find(name.replace(Regex("^[0-9a-f]{12}_"), ""))?.value?.toLongOrNull() ?: -1
@@ -107,8 +113,9 @@ class AnalyticsParityTest {
             if (d !is ImportDecision.Import || d.fileHash in rows) continue
             val a = d.activity
             val sport = pcSport[d.fileHash] ?: d.sport
-            rows[d.fileHash] = Row(d.fileHash, sport, a.startTime, TrainingLoad.localDate(a.startTime), a.duration,
-                TrainingLoad.streamMetrics(a.streams), Curves.bestEfforts(sport, a.streams))
+            rows[d.fileHash] = Row(d.fileHash, sport, a.startTime, TrainingLoad.localDate(a.startTime), a.distance, a.duration,
+                TrainingLoad.streamMetrics(a.streams, sport), Curves.bestEfforts(sport, a.streams),
+                if (sport == "running") Routes.segments(a.streams) else emptyList())
         }
         println("replayed ${order.size} files into ${rows.size} activities")
 
@@ -169,6 +176,85 @@ class AnalyticsParityTest {
                 }
             }
         }
+        // Critical speed today, and every run's type (the poster's colours).
+        val runningRows = rows.values.filter { it.sport == "running" }.sortedBy { it.start }
+        val efforts = CriticalSpeed.efforts(runningRows.map { Curves.Entry(it.hash, it.date, it.bests) })
+        val cs = CriticalSpeed.fitWindow(efforts, today)
+        val wantCs = want.obj("critical_speed").obj("current")
+        bad.check("critical speed", cs != null && close(wantCs["cs"].num(), cs.cs, 1e-9, 1e-9) && close(wantCs["d_prime"].num(), cs.dPrime, 1e-9, 1e-9) &&
+            wantCs["points"].num()!!.toInt() == cs.points && wantCs["window_days"].num()!!.toInt() == cs.windowDays && close(wantCs["r2"].num(), cs.r2, 1e-9, 1e-9) &&
+            wantCs["note"].str() == cs.note) { "pc=$wantCs kotlin=${cs?.cs}/${cs?.dPrime}" }
+        val inputs = runningRows.map { r ->
+            RunInput(r.hash, r.date, r.distance, r.duration, r.metrics.speedHist, r.metrics.hrHist, r.metrics.reps)
+        }
+        val classified = RunTypes.classifyAll(inputs, efforts, settings.maxHr.value)
+        // Runs recorded at the very same moment have no defined order, so compare in (date, distance, duration) order.
+        val wantTypes = (want["run_types"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            .sortedWith(compareBy({ it["date"].str() }, { it["distance"].num() }, { it["duration"].num() }))
+        val gotSorted = classified.withIndex().sortedWith(compareBy({ inputs[it.index].date }, { inputs[it.index].distance }, { inputs[it.index].duration })).map { it.value }
+        bad.check("run type count", wantTypes.size == classified.size) { "pc=${wantTypes.size} kotlin=${classified.size}" }
+        val typeCounts = sortedMapOf<String, Int>()
+        for ((i, w) in wantTypes.withIndex()) {
+            val g = gotSorted.getOrNull(i)?.first ?: break
+            typeCounts.merge(g.type.label, 1, Int::plus)
+            val d = w["detail"]!!.jsonObject
+            bad.check("run ${w["date"].str()} #$i type", w["type"].str() == g.type.label && w["basis"].str() == g.basis &&
+                close(d["easy_share"].num(), g.easyShare, 1e-9, 1e-9) && close(d["hard_share"].num(), g.hardShare, 1e-9, 1e-9)) {
+                "pc=${w["type"].str()}/${w["basis"].str()}/$d kotlin=${g.type.label}/${g.basis}/${g.easyShare}" }
+        }
+        println("run types: $typeCounts")
+
+        // Same-route groups.
+        val withRoute = runningRows.filter { it.polylines.isNotEmpty() }
+        val groups = RouteMatch.group(RouteMatch.signatures(withRoute.associate { it.hash to RouteMatch.track(it.polylines) }), withRoute.map { it.hash })
+            .sortedByDescending { it.size }
+        // The fixture was exported with at least 2 runs per route.
+        val repeated = groups.filter { it.size >= 2 }
+        val wantRoutes = want.obj("routes")
+        val wantList = (wantRoutes["routes"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+        bad.check("route total", wantRoutes["total_routes"].num()!!.toInt() == repeated.size) { "pc=${wantRoutes["total_routes"].num()} kotlin=${repeated.size}" }
+        val byHash = withRoute.associateBy { it.hash }
+        for ((i, w) in wantList.withIndex()) {
+            val g = repeated.getOrNull(i) ?: break
+            val first = byHash.getValue(g[0])
+            val last = byHash.getValue(g.last())
+            bad.check("route #$i", w["runs_count"].num()!!.toInt() == g.size && w["first_date"].str() == first.date.toString() && w["last_date"].str() == last.date.toString() &&
+                (w["polyline"] as kotlinx.serialization.json.JsonArray).map { it.str() } == first.polylines) {
+                "pc=${w["runs_count"].num()} ${w["first_date"].str()}..${w["last_date"].str()} kotlin=${g.size} ${first.date}..${last.date}" }
+        }
+        bad.check("runs in routes", wantRoutes["runs_in_routes"].num()!!.toInt() == repeated.sumOf { it.size }) { "pc=${wantRoutes["runs_in_routes"].num()} kotlin=${repeated.sumOf { it.size }}" }
+        println("route groups: ${groups.size}, repeated ${repeated.size}")
+
+        // Cities: the places each route passes, and the areas they group into.
+        val placesFile = File(seed, "pc-places.json")
+        if (placesFile.exists()) {
+            val oracle = Json.parseToJsonElement(placesFile.readText()).jsonObject
+            val per = oracle.obj("per_activity")
+            val visits = ArrayList<Pair<String, List<Place>>>()
+            var compared = 0
+            for (r in runningRows) {
+                if (r.polylines.isEmpty()) continue
+                val got = Places.visited(r.polylines)
+                visits += r.start.toString().take(4) to got
+                val w = per[r.hash] as? kotlinx.serialization.json.JsonArray ?: continue
+                compared++
+                val want = w.map { (it as kotlinx.serialization.json.JsonArray) }
+                bad.check("places ${r.hash.take(12)}", want.map { listOf(it[0].str(), it[1].str(), it[2].str()) } == got.map { listOf(it.name, it.region, it.country) }) {
+                    "pc=${want.map { it[0].str() }} kotlin=${got.map { it.name }}" }
+            }
+            // Cities with the same number of runs have no defined order (the PC's depends on its row order), so sort by name too.
+            val areas = Places.areas(visits.filter { it.second.isNotEmpty() }).sortedWith(compareBy({ -it.runsByYear.values.sum() }, { it.name }))
+            val wantAreas = (oracle.obj("areas")["areas"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+                .sortedWith(compareBy({ -it.obj("runs_by_year").values.sumOf { v -> v.num()!! } }, { it["name"].str() }))
+            bad.check("area count", wantAreas.size == areas.size) { "pc=${wantAreas.size} kotlin=${areas.size}" }
+            for ((w, g) in wantAreas.zip(areas)) {
+                val years = w.obj("runs_by_year").entries.associate { it.key to it.value.num()!!.toInt() }
+                bad.check("area ${w["name"].str()}", w["name"].str() == g.name && w["country"].str() == g.country && years == g.runsByYear &&
+                    (w["places"] as kotlinx.serialization.json.JsonArray).map { it.str() }.toSet() == g.places.toSet()) { "pc=${w["name"].str()}/$years kotlin=${g.name}/${g.runsByYear}" }
+            }
+            println("places: $compared routes compared, ${areas.size} areas (${areas.take(3).map { it.name }})")
+        }
+
         // Personal-best timeline and weekly streak (the poster's inputs).
         val running = rows.values.filter { it.sport == "running" }.sortedBy { it.start }
         val timeline = Volume.recordsTimeline(running.map { Curves.Entry(it.hash, it.date, it.bests) })

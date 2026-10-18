@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Copied from the PC app (app/static/poster.html) and hosted in a WebView by the Android app. Changes: page chrome (nav, chat, manifest) removed; default colour scheme "year" (run types are not ported yet); Download goes through the AndroidPoster bridge. Everything else is the PC page, so a poster fix there can be copied across. -->
+<!-- Copied from the PC app (app/static/poster.html) and hosted in a WebView by the Android app. Changes: page chrome (nav, chat, manifest) removed; Download goes through the AndroidPoster bridge. Everything else is the PC page, so a poster fix there can be copied across. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -84,7 +84,7 @@
                        [21196, "the Great Wall of China"], [40075, "once round the Earth"]];
 
     let data = null, P = PALETTES.dark, scale = {};
-    const opts = { theme: "dark", mode: "rings", scheme: "year" };
+    const opts = { theme: "dark", mode: "rings", scheme: "type" };
     const $ = id => document.getElementById(id);
 
     // --- small helpers ---------------------------------------------------------------------------

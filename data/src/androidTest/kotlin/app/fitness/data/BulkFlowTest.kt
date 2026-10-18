@@ -142,6 +142,15 @@ class BulkFlowTest {
     }
 
     @Test
+    fun upgradingToVersionFourAddsTheRunningProfile() {
+        val name = "migration-test-4"
+        migrations.createDatabase(name, 3).close()
+        val db = migrations.runMigrationsAndValidate(name, 4, true, FitnessDatabase.MIGRATION_3_4)
+        db.query("SELECT speed_hist, reps FROM activity_metrics").use { assertEquals(0, it.count) }
+        db.close()
+    }
+
+    @Test
     fun analyticsAreComputedFromTheStreamsAndFollowTheThresholds() = runBlocking<Unit> {
         val analytics = AnalyticsRepository(db, repo)
         val hash = (repo.import("run.gpx", gpx(points = 60)) as ImportOutcome.Imported).fileHash
