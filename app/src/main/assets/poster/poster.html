@@ -1,0 +1,844 @@
+<!doctype html>
+<!-- Copied from the PC app (app/static/poster.html) and hosted in a WebView by the Android app. Changes: page chrome (nav, chat, manifest) removed; default colour scheme "year" (run types are not ported yet); Download goes through the AndroidPoster bridge. Everything else is the PC page, so a poster fix there can be copied across. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Poster</title>
+  <meta name="theme-color" content="#e8590c">
+  <meta name="apple-mobile-web-app-title" content="Fitness">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .poster-wrap { max-width: 880px; margin: 0 auto; }
+    #poster svg { width: 100%; height: auto; display: block; border-radius: 6px; box-shadow: 0 4px 24px rgba(0,0,0,.35); }
+    .row { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; }
+    .row label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .row input[type=text] { font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; min-width: 240px; }
+    .row select { font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+    button.primary { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; }
+    button.secondary { font: inherit; font-size: 14px; cursor: pointer; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; }
+    button.secondary:hover { border-color: var(--accent); color: var(--accent); }
+    .note { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+    .modes { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+    .modes button { font: inherit; font-size: 13px; cursor: pointer; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; }
+    .modes button:hover { border-color: var(--accent); }
+    .modes button.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card poster-wrap">
+      <h2>Your running life, as a poster</h2>
+      <div class="modes" id="modes"></div>
+      <div class="row">
+        <label>Title <input type="text" id="title" value="My running life" maxlength="40"></label>
+        <label>From <select id="from"></select></label>
+        <label>To <select id="to"></select></label>
+        <label>Colour by <select id="scheme"></select></label>
+        <div class="segmented" id="theme">
+          <button data-theme="dark" class="active">Dark</button>
+          <button data-theme="light">Light</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top: 10px">
+        <label data-only="rings"><input type="checkbox" id="opt-stripes" checked> Weekly stripes</label>
+        <label data-only="rings"><input type="checkbox" id="opt-pb" checked> Personal bests</label>
+        <label data-only="rings"><input type="checkbox" id="opt-routes" checked> Route shapes</label>
+        <label data-only="rings"><input type="checkbox" id="opt-cities" checked> City names</label>
+        <label data-only="spiral"><input type="checkbox" id="opt-3d"> 3D view</label>
+        <label data-only="spiral3d">Tilt <input type="range" id="tilt" min="20" max="80" value="55"></label>
+        <label data-only="spiral3d">Rotate <input type="range" id="rot" min="0" max="360" value="0"></label>
+      </div>
+      <p class="note" id="mode-note"></p>
+      <div class="row" style="margin-top: 14px">
+        <button class="primary" id="dl-png">Download PNG</button>
+        <button class="secondary" id="dl-svg">Download SVG (for print)</button>
+        <span class="note" id="status" style="margin: 0"></span>
+      </div>
+    </section>
+    <section class="card poster-wrap" style="padding: 12px">
+      <div id="poster"></div>
+      <div class="empty" id="empty" hidden>No runs yet. Import some on the Activities page.</div>
+    </section>
+  </main>
+
+  <script src="common.js"></script>
+  <script>
+    const W = 2000, H = 2800, FONT = "system-ui, 'Segoe UI', Helvetica, Arial, sans-serif";
+    const PALETTES = {
+      dark: { bg: "#0d1117", ink: "#e6e9ef", muted: "#8d96a8", faint: "rgba(255,255,255,0.09)", ring: "rgba(255,255,255,0.13)",
+              accent: "#ff8a3d", pb: "#ffffff", empty: "rgba(255,255,255,0.05)",
+              volume: ["#1a2332", "#2f5d8c", "#ff8a3d"], intensity: ["#1a2332", "#7a3b6b", "#fa5252"],
+              types: { easy: "#74c0fc", steady: "#51cf66", tempo: "#fcc419", long: "#9775fa", intervals: "#fa5252", unknown: "#868e96" } },
+      light: { bg: "#f7f3ec", ink: "#1c2330", muted: "#677185", faint: "rgba(0,0,0,0.08)", ring: "rgba(0,0,0,0.12)",
+               accent: "#e8590c", pb: "#1c2330", empty: "rgba(0,0,0,0.045)",
+               volume: ["#e9e2d4", "#7ea6cf", "#e8590c"], intensity: ["#e9e2d4", "#b97aa8", "#e03131"],
+               types: { easy: "#339af0", steady: "#40c057", tempo: "#f59f00", long: "#7950f2", intervals: "#e03131", unknown: "#adb5bd" } },
+    };
+    const TYPE_ORDER = ["easy", "steady", "tempo", "long", "intervals"];
+    const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    // Real lengths, for the ribbon and the profile. In km.
+    const LANDMARKS = [[42.195, "a marathon"], [100, "an ultramarathon (100 km)"], [1407, "Land's End to John o'Groats"],
+                       [21196, "the Great Wall of China"], [40075, "once round the Earth"]];
+
+    let data = null, P = PALETTES.dark, scale = {};
+    const opts = { theme: "dark", mode: "rings", scheme: "year" };
+    const $ = id => document.getElementById(id);
+
+    // --- small helpers ---------------------------------------------------------------------------
+    const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+    function ramp(stops, t) {                       // piecewise-linear colour ramp over [0, 1]
+      t = Math.max(0, Math.min(1, t));
+      const seg = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(seg)), f = seg - i;
+      const a = hex(stops[i]), b = hex(stops[i + 1]);
+      return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(",")})`;
+    }
+    function rampAt(points, x) {                    // the same over [[position, colour], ...]
+      for (let i = 1; i < points.length; i++) {
+        if (x <= points[i][0] || i === points.length - 1) {
+          const [x0, c0] = points[i - 1], [x1, c1] = points[i];
+          return ramp([c0, c1], (x - x0) / (x1 - x0));
+        }
+      }
+    }
+    const rgbOf = c => c[0] === "#" ? hex(c) : c.match(/\d+/g).slice(0, 3).map(Number);
+    const isLight = c => { const [r, g, b] = rgbOf(c); return 0.299 * r + 0.587 * g + 0.114 * b > 150; };
+    const esc = escapeHtml;
+    const num = (x, d = 0) => x.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+    const isLeap = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const yearOf = iso => Number(iso.slice(0, 4));
+    const utcOf = iso => Date.UTC(yearOf(iso), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
+    const isoOf = ms => new Date(ms).toISOString().slice(0, 10);
+    function dayFraction(iso) {                     // 0..1 through the year
+      const y = yearOf(iso);
+      return ((utcOf(iso) - Date.UTC(y, 0, 1)) / 864e5 + 0.5) / (isLeap(y) ? 366 : 365);
+    }
+    function weekKey(iso) {                         // the Monday of that date's week, as the server writes it
+      const ms = utcOf(iso), back = (new Date(ms).getUTCDay() + 6) % 7;
+      return isoOf(ms - back * 864e5);
+    }
+    const km = x => toDist(x * 1000);               // distances in the user's chosen unit
+    const median = a => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+    const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] : 0;
+    function niceStep(max, ticks = 5) {             // 1, 2 or 5 times a power of ten
+      const raw = max / ticks, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+      return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+    }
+    const paceText = secs => `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, "0")}`;
+
+    // --- colour schemes: how a run (or a group of runs: a week, a month, a route) is coloured ----------
+    const wmean = (runs, f) => {
+      let s = 0, w = 0;
+      for (const r of runs) { const v = f(r); if (v == null) continue; s += v * r.km; w += r.km; }
+      return w ? s / w : null;
+    };
+    const YEAR_STOPS = ["#4dabf7", "#9775fa", "#f06595", "#ff922b", "#ffd43b"];
+    const PACE_STOPS = ["#4dabf7", "#51cf66", "#fcc419", "#fa5252"];
+    const TIME_POINTS = [[0, "#4c3f91"], [5, "#e56b9e"], [8, "#ffb454"], [12, "#6ec6ff"], [17, "#ff7a45"], [20, "#7a5fd0"], [24, "#4c3f91"]];
+    const SEASON_POINTS = [[0, "#4dabf7"], [0.22, "#69db7c"], [0.5, "#ffd43b"], [0.75, "#e8590c"], [1, "#4dabf7"]];
+    const EFFORT_STOPS = ["#4dabf7", "#ffd43b", "#fa5252"];
+    const yearColour = y => ramp(YEAR_STOPS, (y - scale.from) / Math.max(1, scale.to - scale.from));
+    const paceColour = f => ramp(PACE_STOPS, (f - 0.6) / 0.5);
+    const SCHEMES = {
+      type: { label: "Run type",
+        colour: runs => {
+          const by = {}; runs.forEach(r => by[r.type] = (by[r.type] || 0) + r.km);
+          const top = Object.entries(by).sort((a, b) => b[1] - a[1])[0];
+          return top ? P.types[top[0]] || P.types.unknown : null;
+        },
+        legend: () => TYPE_ORDER.filter(t => data.stats.type_km[t]).map(t => [P.types[t], RUN_TYPES[t].label]) },
+      pace: { label: "Pace vs threshold",
+        colour: runs => { const f = wmean(runs, r => r.csf); return f == null ? null : paceColour(f); },
+        legend: () => [[0.65, "65%"], [0.8, "80%"], [0.9, "90%"], [1.0, "100%+ of threshold speed"]].map(([f, t]) => [paceColour(f), t]) },
+      time: { label: "Time of day",
+        colour: runs => { const h = wmean(runs, r => r.hour); return h == null ? null : rampAt(TIME_POINTS, h); },
+        legend: () => [[5, "5 am"], [9, "9 am"], [13, "1 pm"], [18, "6 pm"], [22, "10 pm"]].map(([h, t]) => [rampAt(TIME_POINTS, h), t]) },
+      season: { label: "Season",
+        colour: runs => { const f = wmean(runs, r => dayFraction(r.date)); return f == null ? null : rampAt(SEASON_POINTS, f); },
+        legend: () => [[0.04, "Winter"], [0.3, "Spring"], [0.55, "Summer"], [0.8, "Autumn"]].map(([f, t]) => [rampAt(SEASON_POINTS, f), t]) },
+      year: { label: "Year",
+        colour: runs => { const y = wmean(runs, r => yearOf(r.date)); return y == null ? null : yearColour(y); },
+        legend: () => { const ys = scale.to === scale.from ? [scale.from] : [scale.from, Math.round((scale.from + scale.to) / 2), scale.to];
+                        return ys.map(y => [yearColour(y), String(y)]); } },
+      effort: { label: "Effort (load)",
+        colour: runs => { const l = wmean(runs, r => r.load); return l == null ? null : ramp(EFFORT_STOPS, l / scale.loadMax); },
+        legend: () => [[0.1, "light"], [0.4, "moderate"], [0.7, "hard"], [1, "very hard"]].map(([t, n]) => [ramp(EFFORT_STOPS, t), n]) },
+      mono: { label: "One colour", colour: () => P.accent, legend: () => [[P.accent, "A run"]] },
+    };
+    const schemeNow = () => MODES[opts.mode].colour === "year" ? "year" : opts.scheme;
+    const colourOf = runs => (runs.length && SCHEMES[schemeNow()].colour(runs)) || P.types.unknown;
+
+    // Cities (areas of nearby places) with their runs inside the chosen years, most-run first.
+    function citiesIn(c) {
+      const out = [];
+      for (const a of (data.places || { areas: [] }).areas) {
+        let runs = 0, first = null;
+        for (const [y, n] of Object.entries(a.runs_by_year)) {
+          if (Number(y) < c.from || Number(y) > c.to) continue;
+          runs += n; first = first == null ? Number(y) : Math.min(first, Number(y));
+        }
+        if (runs) out.push({ ...a, runs, first });
+      }
+      return out.sort((x, y) => y.runs - x.runs);
+    }
+    const countryName = cc => { try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || cc; } catch { return cc; } };
+
+    // --- the modes ---------------------------------------------------------------------------------------
+    // Each draws into c.out between the title and the footer and returns its one-line caption.
+    function drawRings(c) {
+      const { out, text, from, years, runs, weeks, showPb, showStripes, showRoutes, totalKm } = c;
+      const cities = c.showCities ? citiesIn(c) : [];
+      if (cities.length) {                          // one line under the subtitle: how many, then the most-run names
+        const countries = new Set(cities.map(a => a.country)).size;
+        let names = "", shown = 0;
+        for (const a of cities) {
+          const next = names + (names ? "  ·  " : "") + a.name;
+          if (next.length > 105 && shown) break;
+          names = next; shown++;
+        }
+        const more = cities.length - shown;
+        text(1000, 292, `${cities.length} ${cities.length === 1 ? "CITY" : "CITIES"} IN ${countries} ${countries === 1 ? "COUNTRY" : "COUNTRIES"}   ·   ${names.toUpperCase()}${more ? `   +${more} MORE` : ""}`,
+             21, P.muted, 'text-anchor="middle" letter-spacing="1.5"');
+      }
+      const longest = runs.reduce((m, r) => Math.max(m, r.km), 0);
+      const records = data.records.filter(r => yearOf(r.date) >= c.from && yearOf(r.date) <= c.to);
+      const bigWeek = weeks.reduce((m, w) => Math.max(m, w.km), 0);
+      const cx = 1000, cy = showRoutes ? 1215 : 1390, R = showRoutes ? 640 : 800, rLabel = R + 42, rIn = 175;
+      const gap = Math.min(70, (R - rIn) / Math.max(1, years.length));
+      const ringR = k => rIn + k * gap;
+
+      function stripes(y0, h, label, valueOf, stops, scaleMax) {
+        const x0 = 100, width = 1800, sw = width / Math.max(1, weeks.length);
+        text(x0, y0 - 14, label, 22, P.muted, 'letter-spacing="3"');
+        weeks.forEach((w, i) => {
+          const v = valueOf(w);
+          out.push(`<rect x="${(x0 + i * sw).toFixed(2)}" y="${y0}" width="${(sw + 0.35).toFixed(2)}" height="${h}" fill="${v == null ? P.empty : ramp(stops, v / scaleMax)}"/>`);
+        });
+        const seen = new Set();
+        weeks.forEach((w, i) => {
+          const y = yearOf(w.w);
+          if (seen.has(y) || w.w.slice(5) > "01-07" && i > 0) return;
+          seen.add(y);
+          out.push(`<line x1="${x0 + i * sw}" y1="${y0 + h}" x2="${x0 + i * sw}" y2="${y0 + h + 12}" stroke="${P.muted}" stroke-width="2"/>`);
+          text(x0 + i * sw + 6, y0 + h + 32, String(y), 21, P.muted);
+        });
+      }
+      if (showStripes && weeks.length) {
+        const positive = weeks.map(w => w.km).filter(v => v > 0).sort((a, b) => a - b);
+        const q95 = positive.length ? positive[Math.floor(positive.length * 0.95)] : 1;
+        stripes(345, 80, "WEEKLY DISTANCE", w => w.km > 0 ? w.km : null, P.volume, q95);
+        stripes(2535, 80, "SHARE RUN AT TEMPO PACE OR HARDER", w => w.km > 0 ? w.hard / w.km : null, P.intensity, 0.6);
+      }
+
+      const ARC0 = -80, ARC = 340;                  // degrees; a gap at the top holds the year labels
+      const at = (r, frac) => { const a = (ARC0 + frac * ARC) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+      const tips = {};
+      years.forEach((y, k) => out.push(`<circle cx="${cx}" cy="${cy}" r="${ringR(k).toFixed(1)}" fill="none" stroke="${P.ring}" stroke-width="1.5"/>`));
+      const perDay = {}, sw = Math.max(1.8, Math.min(3.6, gap * 0.085));
+      for (const r of runs) {
+        const k = yearOf(r.date) - from, n = perDay[r.date] = (perDay[r.date] || 0) + 1;
+        const base = ringR(k), len = Math.max(3, gap * 0.9 * Math.min(1, Math.sqrt(r.km / 21.1)));
+        const frac = dayFraction(r.date) + (n - 1) * 0.0007;
+        const [x1, y1] = at(base, frac), [x2, y2] = at(base + len, frac);
+        tips[r.id] = [x2, y2];
+        out.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${colourOf([r])}" stroke-width="${sw}" stroke-linecap="round" opacity="0.93"/>`);
+      }
+      if (showPb) for (const rec of records) {
+        const t = tips[rec.id]; if (!t) continue;
+        out.push(`<circle cx="${t[0].toFixed(1)}" cy="${t[1].toFixed(1)}" r="${Math.max(4.5, gap * 0.12)}" fill="${P.pb}" stroke="${P.bg}" stroke-width="2"/>`);
+      }
+      const fontY = Math.max(13, Math.min(24, gap * 0.42));
+      years.forEach((y, k) => text(cx, cy - ringR(k) - gap * 0.3, String(y), fontY, P.muted, 'text-anchor="middle"'));
+      MONTHS.forEach((m, i) => {
+        const [x, y] = at(rLabel, (i + 0.5) / 12);
+        text(x.toFixed(1), (y + 8).toFixed(1), m, 24, P.muted, 'text-anchor="middle" letter-spacing="2"');
+      });
+      text(cx, cy - 6, num(km(totalKm)), 92, P.ink, 'text-anchor="middle" font-weight="800"');
+      text(cx, cy + 44, `${DIST_UNIT} run`, 30, P.muted, 'text-anchor="middle" letter-spacing="3"');
+      text(cx, cy + 86, `${from === c.to ? from : from + " – " + c.to}`, 26, P.muted, 'text-anchor="middle"');
+
+      function stat(x, y, anchor, label, value, sub) {
+        text(x, y, label, 22, P.muted, `text-anchor="${anchor}" letter-spacing="3"`);
+        text(x, y + 62, value, 60, P.ink, `text-anchor="${anchor}" font-weight="700"`);
+        if (sub) text(x, y + 98, sub, 24, P.muted, `text-anchor="${anchor}"`);
+      }
+      const top = cy - rLabel + 40, bottom = cy + rLabel - 150;
+      stat(110, top, "start", "LONGEST RUN", `${num(km(longest), 1)} ${DIST_UNIT}`, "");
+      stat(1890, top, "end", "BIGGEST WEEK", `${num(km(bigWeek), 0)} ${DIST_UNIT}`, "");
+      stat(110, bottom, "start", "LONGEST STREAK", `${data.stats.longest_streak_weeks} weeks`, "in a row with a run");
+      stat(1890, bottom, "end", "PERSONAL BESTS", String(records.length), "new records over time");
+
+      if (showRoutes) {
+        const routes = data.routes.slice(0, 10), maxRuns = Math.max(...routes.map(r => r.runs));
+        text(100, 2000, "THE ROUTES YOU KEEP COMING BACK TO", 22, P.muted, 'letter-spacing="3"');
+        routes.forEach((r, i) => {
+          const col = i % 5, row = Math.floor(i / 5), cellX = 100 + col * 360, cellY = 2030 + row * 235;
+          const size = 150 * (0.7 + 0.4 * Math.sqrt(r.runs / maxRuns)), gx = cellX + 80, gy = cellY + 105;
+          const d = r.shape.map(seg => "M" + seg.map(p => `${(gx + p[0] * size / 2).toFixed(1)} ${(gy + p[1] * size / 2).toFixed(1)}`).join("L")).join("");
+          out.push(`<path d="${d}" fill="none" stroke="${P.accent}" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>`);
+          text(cellX + 175, gy - 8, `${r.runs} runs`, 34, P.ink, 'font-weight="700"');
+          text(cellX + 175, gy + 28, `${num(km(r.km), 1)} ${DIST_UNIT} loop`, 24, P.muted);
+        });
+      }
+      return "Each ring is a year, from January clockwise. Each tick is a run: longer is further (a half marathon fills the ring).";
+    }
+
+    function drawGrid(c) {
+      const { out, text, years, runs } = c;
+      const x0 = 170, x1 = 1880, top = 420, bottom = 2610, cw = (x1 - x0) / 54;
+      const ch = Math.min(cw * 0.9, (bottom - top) / (years.length * 8.6)), blockH = ch * 8.6;
+      const byDay = {};
+      runs.forEach(r => (byDay[r.date] = byDay[r.date] || []).push(r));
+      years.forEach((y, k) => {
+        const y0 = top + k * blockH, jan1 = Date.UTC(y, 0, 1), off = (new Date(jan1).getUTCDay() + 6) % 7;
+        text(x0 - 18, y0 + ch * 4.4, String(y), Math.min(34, ch * 1.3), P.muted, 'text-anchor="end"');
+        const empty = [], marks = [];
+        for (let d = 0, n = isLeap(y) ? 366 : 365; d < n; d++) {
+          const col = Math.floor((d + off) / 7), row = (d + off) % 7, px = x0 + col * cw, py = y0 + row * ch;
+          const rs = byDay[isoOf(jan1 + d * 864e5)];
+          if (!rs) { empty.push(`M${(px + cw * 0.12).toFixed(1)} ${(py + ch * 0.12).toFixed(1)}h${(cw * 0.76).toFixed(1)}v${(ch * 0.76).toFixed(1)}h${(-cw * 0.76).toFixed(1)}z`); continue; }
+          const dayKm = rs.reduce((s, r) => s + r.km, 0), side = Math.min(cw, ch) * (0.38 + 0.62 * Math.sqrt(Math.min(1, dayKm / 21.1)));
+          marks.push(`<rect x="${(px + (cw - side) / 2).toFixed(1)}" y="${(py + (ch - side) / 2).toFixed(1)}" width="${side.toFixed(1)}" height="${side.toFixed(1)}" rx="${(side * 0.2).toFixed(1)}" fill="${colourOf(rs)}"/>`);
+        }
+        out.push(`<path d="${empty.join("")}" fill="${P.empty}"/>`, ...marks);
+        if (k === 0) MONTHS.forEach((m, i) => {
+          const dayOfYear = (Date.UTC(y, i, 1) - jan1) / 864e5;
+          text((x0 + Math.floor((dayOfYear + off) / 7) * cw).toFixed(1), y0 - 14, m, 20, P.muted, 'letter-spacing="2"');
+        });
+      });
+      return "Each column is a week, each row a weekday (Monday at the top), each square a day you ran. A bigger square is a longer run.";
+    }
+
+    // The same spiral lifted into 3D: tilted towards the viewer, each week a column whose height is its distance.
+    // A plain projection without perspective: yaw is folded into the angles, tilt squashes the ground plane.
+    const shade = (col, f) => {                       // f < 1 darkens, f > 1 lightens towards white
+      const rgb = rgbOf(col).map(v => Math.round(f <= 1 ? v * f : v + (255 - v) * (f - 1)));
+      return `rgb(${rgb.join(",")})`;
+    };
+    function drawSpiral3D(c) {
+      const { out, text, years, runs, weeks, totalKm } = c;
+      const tilt = Number($("tilt").value) * Math.PI / 180, yaw = Number($("rot").value);
+      const sinT = Math.sin(tilt), cosT = Math.cos(tilt);
+      const cx = 1000, cy = 1520, rIn = 130, rOut = 880, turns = years.length, gap = (rOut - rIn) / turns;
+      const tOf = iso => yearOf(iso) - c.from + dayFraction(iso);
+      const rAt = t => rIn + gap * t, aAt = t => (-90 + yaw + 360 * t) * Math.PI / 180;
+      const scr = (x, y, z = 0) => [cx + x, cy + y * sinT - z * cosT];          // plane point and height -> screen
+      const plane = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
+      const fmt = pt => pt.map(v => v.toFixed(1)).join(" ");
+      const poly = pts => "M" + pts.map(fmt).join("L") + "Z";
+
+      // the ground: a disc, the spiral path on it, and the months round its rim
+      const rim = rOut + gap * 0.7;
+      out.push(`<ellipse cx="${cx}" cy="${cy}" rx="${rim}" ry="${(rim * sinT).toFixed(1)}" fill="${P.faint}" stroke="${P.ring}" stroke-width="2"/>`);
+      const path = []; for (let t = 0; t <= turns + 1e-9; t += 0.01) path.push(fmt(scr(...plane(rAt(t), aAt(t)))));
+      out.push(`<path d="M${path.join("L")}" fill="none" stroke="${P.ring}" stroke-width="2"/>`);
+
+      // the columns, far ones first so near ones cover them
+      const byWeek = {};
+      runs.forEach(r => (byWeek[weekKey(r.date)] = byWeek[weekKey(r.date)] || []).push(r));
+      const positive = weeks.map(w => w.km).filter(v => v > 0).sort((a, b) => a - b), q95 = quantile(positive, 0.95) || 1;
+      const cols = [];
+      for (const w of weeks) {
+        if (w.km <= 0 || !byWeek[w.w]) continue;
+        const t = tOf(w.w) + 3.5 / (isLeap(yearOf(w.w)) ? 366 : 365), r0 = rAt(t), a = aAt(t);
+        const hw = Math.max(2.2, Math.min(8, 2 * Math.PI * r0 / 52 * 0.3)), depth = gap * 0.7;
+        const h = 8 + 330 * Math.min(1.25, Math.sqrt(w.km / q95));
+        const radial = [Math.cos(a), Math.sin(a)], tang = [-Math.sin(a), Math.cos(a)];
+        const corner = (dr, dt) => [(r0 + dr) * radial[0] + dt * tang[0], (r0 + dr) * radial[1] + dt * tang[1]];
+        cols.push({ depth: r0 * Math.sin(a), colour: colourOf(byWeek[w.w]), h,
+                    base: [corner(0, -hw), corner(0, hw), corner(depth, hw), corner(depth, -hw)] });
+      }
+      cols.sort((a, b) => a.depth - b.depth);
+      const LIGHT = [-0.55, 0.45];                       // light from the upper left and the front
+      const near = cols.length ? cols[cols.length - 1].depth : 1, far = cols.length ? cols[0].depth : -1;
+      for (const k of cols) {
+        const bottom = k.base.map(([x, y]) => scr(x, y)), top = k.base.map(([x, y]) => scr(x, y, k.h));
+        const fade = 0.78 + 0.22 * (k.depth - far) / Math.max(1, near - far);   // distant columns recede a little
+        const faces = [];
+        for (let i = 0; i < 4; i++) {
+          const [x1, y1] = k.base[i], [x2, y2] = k.base[(i + 1) % 4];
+          let nx = y2 - y1, ny = -(x2 - x1);              // outward normal of this side of the footprint
+          const len = Math.hypot(nx, ny) || 1; nx /= len; ny /= len;
+          if (ny <= 0) continue;                          // sides turned away from the viewer are hidden
+          const lit = 0.55 + 0.35 * (nx * LIGHT[0] + ny * LIGHT[1]);
+          faces.push({ d: poly([bottom[i], bottom[(i + 1) % 4], top[(i + 1) % 4], top[i]]), f: lit, z: (y1 + y2) / 2 });
+        }
+        faces.sort((a, b) => a.z - b.z);
+        faces.forEach(f => out.push(`<path d="${f.d}" fill="${shade(k.colour, f.f)}" opacity="${fade.toFixed(2)}"/>`));
+        out.push(`<path d="${poly(top)}" fill="${shade(k.colour, 1.25)}" opacity="${fade.toFixed(2)}"/>`);
+      }
+      // labels go on top, with a halo in the background colour so a column behind them doesn't hide them
+      const halo = `stroke="${P.bg}" stroke-width="6" paint-order="stroke" stroke-linejoin="round"`;
+      MONTHS.forEach((m, i) => {
+        const [x, y] = scr(...plane(rim + 50, aAt((i + 0.5) / 12)));
+        text(x.toFixed(1), (y + 8).toFixed(1), m, 24, P.muted, `text-anchor="middle" letter-spacing="2" ${halo}`);
+      });
+      years.forEach((y, i) => {                           // on the ground at January's edge
+        const [x, yy] = scr(...plane(rAt(i) - 8, aAt(i)));
+        text(x.toFixed(1), yy.toFixed(1), String(y), Math.max(14, Math.min(22, gap * 0.4)), P.muted, `text-anchor="end" ${halo}`);
+      });
+      text(cx, cy - 4, num(km(totalKm)), 70, P.ink, `text-anchor="middle" font-weight="800" ${halo}`);
+      text(cx, cy + 36, `${DIST_UNIT} run`, 26, P.muted, `text-anchor="middle" letter-spacing="3" ${halo}`);
+      return "A spiral in 3D: one turn a year from the first run at the centre. Each column is a week, and its height is the distance.";
+    }
+
+    function drawSpiral(c) {
+      if ($("opt-3d").checked) return drawSpiral3D(c);
+      const { out, text, years, runs, weeks, totalKm } = c;
+      const cx = 1000, cy = 1470, rIn = 130, rOut = 880, turns = years.length, gap = (rOut - rIn) / turns;
+      const tOf = iso => yearOf(iso) - c.from + dayFraction(iso);
+      const rAt = t => rIn + gap * t, aAt = t => (-90 + 360 * t) * Math.PI / 180;
+      const pt = (t, r) => [cx + r * Math.cos(aAt(t)), cy + r * Math.sin(aAt(t))];
+      const line = []; for (let t = 0; t <= turns + 1e-9; t += 0.01) line.push(pt(t, rAt(t)).map(v => v.toFixed(1)).join(" "));
+      out.push(`<path d="M${line.join("L")}" fill="none" stroke="${P.ring}" stroke-width="2"/>`);
+      const byWeek = {};
+      runs.forEach(r => (byWeek[weekKey(r.date)] = byWeek[weekKey(r.date)] || []).push(r));
+      const positive = weeks.map(w => w.km).filter(v => v > 0).sort((a, b) => a - b), q95 = quantile(positive, 0.95) || 1;
+      for (const w of weeks) {
+        if (w.km <= 0 || !byWeek[w.w]) continue;
+        const t = tOf(w.w) + 3.5 / (isLeap(yearOf(w.w)) ? 366 : 365), r0 = rAt(t), len = Math.max(4, gap * 0.95 * Math.min(1, Math.sqrt(w.km / q95)));
+        const [x1, y1] = pt(t, r0), [x2, y2] = pt(t, r0 + len), width = Math.max(3, Math.min(11, 2 * Math.PI * r0 / 52 * 0.55));
+        out.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${colourOf(byWeek[w.w])}" stroke-width="${width.toFixed(1)}" stroke-linecap="round" opacity="0.93"/>`);
+      }
+      years.forEach((y, k) => text(cx + 10, cy - rAt(k) - 6, String(y), Math.max(14, Math.min(22, gap * 0.4)), P.muted));
+      MONTHS.forEach((m, i) => {
+        const [x, y] = pt((i + 0.5) / 12, rOut + gap + 50);
+        text(x.toFixed(1), (y + 8).toFixed(1), m, 24, P.muted, 'text-anchor="middle" letter-spacing="2"');
+      });
+      text(cx, cy - 6, num(km(totalKm)), 70, P.ink, 'text-anchor="middle" font-weight="800"');
+      text(cx, cy + 36, `${DIST_UNIT} run`, 26, P.muted, 'text-anchor="middle" letter-spacing="3"');
+      return "One line spirals outward from your first run, a turn a year, January at the top. Each spike is a week: taller is further.";
+    }
+
+    function monthlyKm(runs, years) {
+      const m = {}; years.forEach(y => m[y] = Array(12).fill(0));
+      runs.forEach(r => { m[yearOf(r.date)][Number(r.date.slice(5, 7)) - 1] += r.km; });
+      return m;
+    }
+
+    function drawClock(c) {
+      const { out, text, years, runs, totalKm } = c;
+      const cx = 1000, cy = 1470, R = 800, rIn = 90, per = monthlyKm(runs, years);
+      const maxM = Math.max(1, ...years.flatMap(y => per[y]));
+      const step = niceStep(km(maxM), 4), rOfKm = v => rIn + (R - rIn) * Math.min(1, v / maxM);
+      const ang = m => (-90 + (m + 0.5) * 30) * Math.PI / 180;
+      for (let v = step; v <= km(maxM) * 1.0001; v += step) {
+        const r = rOfKm(v / km(1));
+        out.push(`<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="none" stroke="${P.ring}" stroke-width="1.5" stroke-dasharray="4 8"/>`);
+        text(cx + 8, cy - r - 6, `${num(v)} ${DIST_UNIT}`, 20, P.muted);
+      }
+      MONTHS.forEach((m, i) => {
+        const a = ang(i), [x, y] = [cx + (R + 55) * Math.cos(a), cy + (R + 55) * Math.sin(a)];
+        out.push(`<line x1="${cx}" y1="${cy}" x2="${(cx + R * Math.cos(a)).toFixed(1)}" y2="${(cy + R * Math.sin(a)).toFixed(1)}" stroke="${P.faint}" stroke-width="1.5"/>`);
+        text(x.toFixed(1), (y + 8).toFixed(1), m, 26, P.muted, 'text-anchor="middle" letter-spacing="2"');
+      });
+      years.forEach((y, k) => {
+        const col = yearColour(y), newest = k === years.length - 1;
+        const d = per[y].map((v, m) => { const r = rOfKm(v); return `${(cx + r * Math.cos(ang(m))).toFixed(1)} ${(cy + r * Math.sin(ang(m))).toFixed(1)}`; });
+        out.push(`<path d="M${d.join("L")}Z" fill="${col}" fill-opacity="0.10" stroke="${col}" stroke-opacity="${newest ? 1 : 0.8}" stroke-width="${newest ? 6 : 3.2}" stroke-linejoin="round"/>`);
+      });
+      text(cx, cy - 4, num(km(totalKm)), 64, P.ink, 'text-anchor="middle" font-weight="800"');
+      text(cx, cy + 34, DIST_UNIT, 26, P.muted, 'text-anchor="middle" letter-spacing="3"');
+      return "Every year is one shape: how far you ran in each month, round the calendar. Compare the shapes to compare the years.";
+    }
+
+    function drawMountains(c) {
+      const { out, text, years, weeks } = c;
+      const x0 = 170, x1 = 1880, top = 440, bottom = 2540, spacing = (bottom - top) / years.length;
+      const perYear = {}; years.forEach(y => perYear[y] = Array(53).fill(0));
+      weeks.forEach(w => { const y = yearOf(w.w); if (perYear[y]) perYear[y][Math.min(52, Math.floor((utcOf(w.w) - Date.UTC(y, 0, 1)) / 864e5 / 7))] += w.km; });
+      const vals = years.flatMap(y => perYear[y]).filter(v => v > 0).sort((a, b) => a - b), q98 = quantile(vals, 0.98) || 1;
+      const hs = spacing * 2.3 / q98, xAt = i => x0 + (x1 - x0) * i / 52;
+      years.forEach((y, k) => {
+        const base = top + spacing * (k + 1), a = perYear[y];
+        const sm = a.map((v, i) => (a[Math.max(0, i - 1)] + 2 * v + a[Math.min(52, i + 1)]) / 4);
+        const pts = sm.map((v, i) => `${xAt(i).toFixed(1)} ${(base - Math.min(spacing * 3.2, v * hs)).toFixed(1)}`);
+        const col = yearColour(y);
+        out.push(`<path d="M${x0} ${base}L${pts.join("L")}L${x1} ${base}Z" fill="${P.bg}"/>`,
+                 `<path d="M${x0} ${base}L${pts.join("L")}L${x1} ${base}Z" fill="${col}" fill-opacity="0.16"/>`,
+                 `<path d="M${pts.join("L")}" fill="none" stroke="${col}" stroke-width="3.6" stroke-linejoin="round"/>`);
+        text(x0 - 18, base, String(y), Math.min(34, spacing * 0.5), P.muted, 'text-anchor="end"');
+      });
+      MONTHS.forEach((m, i) => text(xAt(i * 52 / 12 + 2).toFixed(1), bottom + 44, m, 20, P.muted, 'letter-spacing="2"'));
+      return "One ridge per year, oldest at the back, weeks of the year left to right. The height of the ridge is the distance you ran that week.";
+    }
+
+    function drawConstellation(c) {
+      const { out, text, runs } = c, byId = Object.fromEntries(runs.map(r => [r.id, r]));
+      const routes = data.routes.filter(r => r.ids.some(i => byId[i]));
+      if (!routes.length) { text(1000, 1400, "No route has been run three or more times in these years.", 36, P.muted, 'text-anchor="middle"'); return ""; }
+      const cols = 4, rows = Math.ceil(routes.length / cols), cellW = 1800 / cols, cellH = Math.min(380, 2200 / rows);
+      const maxKm = Math.max(...routes.map(r => r.km));
+      routes.forEach((r, i) => {
+        const col = i % cols, row = Math.floor(i / cols), size = cellH * 0.7 * (0.5 + 0.5 * Math.sqrt(r.km / maxKm));
+        const gx = 100 + col * cellW + cellH * 0.4, gy = 440 + row * cellH + cellH * 0.45;
+        const rs = r.ids.map(i => byId[i]).filter(Boolean);
+        const d = r.shape.map(seg => "M" + seg.map(p => `${(gx + p[0] * size / 2).toFixed(1)} ${(gy + p[1] * size / 2).toFixed(1)}`).join("L")).join("");
+        out.push(`<path d="${d}" fill="none" stroke="${colourOf(rs)}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>`);
+        text(gx + cellH * 0.45, gy - 6, `${rs.length} runs`, 34, P.ink, 'font-weight="700"');
+        text(gx + cellH * 0.45, gy + 30, `${num(km(r.km), 1)} ${DIST_UNIT} loop`, 24, P.muted);
+      });
+      return "The routes you keep coming back to, drawn as shapes with no map. A bigger shape is a longer route.";
+    }
+
+    function drawStarburst(c) {
+      const { out, text, runs } = c, byId = Object.fromEntries(runs.map(r => [r.id, r]));
+      const groups = data.starburst.map(g => ({ ...g, rs: g.ids.map(i => byId[i]).filter(Boolean) })).filter(g => g.rs.length);
+      if (!groups.length) { text(1000, 1400, "No routes in these years.", 36, P.muted, 'text-anchor="middle"'); return ""; }
+      const cx = 1000, cy = 1480, R = 880;
+      const reach = groups.map(g => Math.max(...g.shape.flat().map(p => Math.hypot(p[0], p[1])))).sort((a, b) => a - b);
+      const maxM = Math.max(500, quantile(reach, 0.95)), s = R / maxM;
+      const stepM = niceStep(toDist(maxM), 4) * (IMPERIAL ? M_PER_MILE : 1000);
+      out.push(`<defs><clipPath id="burst"><circle cx="${cx}" cy="${cy}" r="${R + 6}"/></clipPath></defs>`);
+      for (let m = stepM; m <= maxM * 1.0001; m += stepM) {
+        out.push(`<circle cx="${cx}" cy="${cy}" r="${(m * s).toFixed(1)}" fill="none" stroke="${P.ring}" stroke-width="1.5" stroke-dasharray="4 8"/>`);
+        text(cx + 8, cy - m * s - 6, `${num(toDist(m))} ${DIST_UNIT}`, 20, P.muted);
+      }
+      out.push('<g clip-path="url(#burst)" stroke-linecap="round" stroke-linejoin="round" fill="none">');
+      groups.sort((a, b) => a.rs.length - b.rs.length).forEach(g => {
+        const w = Math.min(1, g.rs.length / 12), d = g.shape.map(seg => "M" + seg.map(p => `${(cx + p[0] * s).toFixed(1)} ${(cy + p[1] * s).toFixed(1)}`).join("L")).join("");
+        out.push(`<path d="${d}" stroke="${colourOf(g.rs)}" stroke-width="${(1.6 + 2.6 * w).toFixed(1)}" opacity="${(0.22 + 0.7 * w).toFixed(2)}"/>`);
+      });
+      out.push("</g>", `<circle cx="${cx}" cy="${cy}" r="8" fill="${P.ink}"/>`);
+      text(cx + 16, cy + 34, "start", 20, P.muted);
+      return "Every route you have run, drawn out from where it started. Thicker, brighter lines are routes you repeat; the rings are distance from the start.";
+    }
+
+    function drawRibbon(c) {
+      const { out, text, runs, totalKm } = c;
+      const x0 = 100, width = 1800, top = 440, pitch = 2160 / 28, barH = pitch * 0.5;
+      const pxPerKm = Math.min(60, width * 28 * 0.97 / Math.max(1, totalKm)), pos = km0 => [x0 + (km0 * pxPerKm) % width, Math.floor(km0 * pxPerKm / width)];
+      const rowY = row => top + row * pitch + pitch - barH - 6;
+      let cum = 0;
+      for (const r of runs) {
+        let a = cum * pxPerKm, b = (cum + r.km) * pxPerKm; cum += r.km;
+        const colour = colourOf([r]), shrink = (b - a) > 3 ? 1.2 : 0;
+        while (a < b - 0.01) {
+          const row = Math.floor(a / width), end = Math.min(b, (row + 1) * width);
+          out.push(`<rect x="${(x0 + a - row * width).toFixed(1)}" y="${rowY(row).toFixed(1)}" width="${Math.max(0.8, end - a - shrink).toFixed(1)}" height="${barH.toFixed(1)}" fill="${colour}"/>`);
+          a = end;
+        }
+      }
+      const mark = (km0, label, strong) => {            // a label above the ribbon where cumulative distance passes km0
+        const [x, row] = pos(km0), y = rowY(row);
+        out.push(`<line x1="${x.toFixed(1)}" y1="${(y - (strong ? 26 : 12)).toFixed(1)}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${strong ? P.ink : P.muted}" stroke-width="${strong ? 3 : 2}"/>`);
+        const flip = x > x0 + width - 330;              // near the right edge the label goes to the left of its tick
+        text((flip ? x - 6 : x + 6).toFixed(1), (y - (strong ? 14 : 2) - 2).toFixed(1), label, strong ? 21 : 17, strong ? P.ink : P.muted,
+             (strong ? 'font-weight="700" ' : "") + (flip ? 'text-anchor="end"' : ""));
+      };
+      const unitKm = km(1) ? 1 / km(1) : 1;               // km per displayed unit (1 or 1.609)
+      for (let u = 1000; u * unitKm <= totalKm; u += 1000) mark(u * unitKm, `${num(u)} ${DIST_UNIT}`, false);
+      const passed = LANDMARKS.filter(([k]) => k <= totalKm);
+      passed.forEach(([k, name]) => mark(k, name, true));
+      const big = passed.filter(([k]) => k >= 1000).pop();
+      return big ? `Every run laid end to end, oldest first, line by line; each block is a run and its width is the distance. In total: ${num(totalKm / big[0], 1)} × ${big[1]}.`
+                 : "Every run laid end to end, oldest first, line by line; each block is a run and its width is the distance.";
+    }
+
+    function drawScatter(c) {
+      const { out, text, runs } = c, withPace = runs.filter(r => r.mps);
+      if (!withPace.length) return "";
+      const unitM = IMPERIAL ? M_PER_MILE : 1000, secs = r => unitM / r.mps;
+      const sorted = withPace.map(secs).sort((a, b) => a - b);
+      const lo = Math.floor(quantile(sorted, 0.02) / 30) * 30, hi = Math.ceil(quantile(sorted, 0.98) / 30) * 30;
+      const px0 = 200, px1 = 1860, py0 = 440, py1 = 2450, t0 = Date.UTC(c.from, 0, 1), t1 = Date.UTC(c.to + 1, 0, 1);
+      const X = ms => px0 + (ms - t0) / (t1 - t0) * (px1 - px0), Y = s => py0 + Math.max(0, Math.min(1, (s - lo) / (hi - lo))) * (py1 - py0);
+      const stepS = hi - lo > 240 ? 60 : 30;
+      for (let s = lo; s <= hi; s += stepS) {
+        out.push(`<line x1="${px0}" y1="${Y(s).toFixed(1)}" x2="${px1}" y2="${Y(s).toFixed(1)}" stroke="${P.faint}" stroke-width="1.5"/>`);
+        text(px0 - 14, (Y(s) + 7).toFixed(1), paceText(s), 22, P.muted, 'text-anchor="end"');
+      }
+      text(100, py0 - 30, `PACE /${DIST_UNIT}  ·  FASTER IS HIGHER`, 20, P.muted, 'letter-spacing="2"');
+      for (let y = c.from; y <= c.to; y++) {
+        const x = X(Date.UTC(y, 0, 1));
+        out.push(`<line x1="${x.toFixed(1)}" y1="${py1}" x2="${x.toFixed(1)}" y2="${py1 + 12}" stroke="${P.muted}" stroke-width="2"/>`);
+        if (c.years.length < 18 || (y - c.from) % 2 === 0) text((x + 6).toFixed(1), py1 + 36, String(y), 22, P.muted);
+      }
+      [...withPace].sort((a, b) => b.km - a.km).forEach(r => {
+        out.push(`<circle cx="${X(utcOf(r.date)).toFixed(1)}" cy="${Y(secs(r)).toFixed(1)}" r="${(3.5 + 11 * Math.sqrt(Math.min(1, r.km / 21.1))).toFixed(1)}" fill="${colourOf([r])}" opacity="0.62"/>`);
+      });
+      const DAY = 864e5, pieces = [];                   // median pace in a 90-day window, stepped monthly
+      let piece = [];
+      for (let t = t0; t <= t1; t += 30 * DAY) {
+        const near = withPace.filter(r => Math.abs(utcOf(r.date) - t) <= 45 * DAY);
+        if (near.length >= 3) piece.push(`${X(t).toFixed(1)} ${Y(median(near.map(secs))).toFixed(1)}`);
+        else { if (piece.length > 1) pieces.push(piece); piece = []; }     // a gap in your running ends the line
+      }
+      if (piece.length > 1) pieces.push(piece);
+      const trend = pieces.map(pc => "M" + pc.join("L")).join("");
+      if (trend) out.push(`<path d="${trend}" fill="none" stroke="${P.bg}" stroke-width="11" stroke-linejoin="round" stroke-linecap="round"/>`,
+                          `<path d="${trend}" fill="none" stroke="${P.ink}" stroke-width="5.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+      return "Every run is a dot: later is further right, faster is higher, further is bigger. The line is your median pace (90-day window); rising means faster.";
+    }
+
+    function drawBubbles(c) {
+      const { out, text, runs } = c, months = {};
+      runs.forEach(r => { const k = r.date.slice(0, 7); (months[k] = months[k] || { key: k, km: 0, rs: [] }); months[k].km += r.km; months[k].rs.push(r); });
+      const list = Object.values(months).sort((a, b) => b.km - a.km);
+      list.forEach(m => m.r = Math.sqrt(m.km) * 4);
+      const placed = [];
+      let angle = 0;
+      for (const m of list) {
+        if (!placed.length) { m.x = 0; m.y = 0; placed.push(m); continue; }
+        search: for (let rho = 0; ; rho += 4) {
+          const n = Math.max(8, Math.floor(2 * Math.PI * rho / 12));
+          for (let i = 0; i < n; i++) {
+            const a = angle + 2 * Math.PI * i / n, x = rho * Math.cos(a), y = rho * Math.sin(a);
+            if (placed.every(p => Math.hypot(p.x - x, p.y - y) >= p.r + m.r + 5)) { m.x = x; m.y = y; placed.push(m); break search; }
+          }
+        }
+        angle += 2.399963;                              // golden angle: the blob grows evenly
+      }
+      const minX = Math.min(...placed.map(p => p.x - p.r)), maxX = Math.max(...placed.map(p => p.x + p.r));
+      const minY = Math.min(...placed.map(p => p.y - p.r)), maxY = Math.max(...placed.map(p => p.y + p.r));
+      const s = Math.min(3, 1800 / (maxX - minX), 2150 / (maxY - minY));
+      const ox = 1000 - (minX + maxX) / 2 * s, oy = 1520 - (minY + maxY) / 2 * s;
+      for (const m of placed) {
+        const x = ox + m.x * s, y = oy + m.y * s, r = m.r * s, fill = colourOf(m.rs);
+        out.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" opacity="0.9"/>`);
+        if (r >= 38) {
+          const ink = isLight(fill) ? "#10151d" : "#ffffff", [yy, mm] = m.key.split("-");
+          text(x.toFixed(1), (y - (r >= 62 ? 6 : 0)).toFixed(1), `${MONTHS[Number(mm) - 1]} ${yy.slice(2)}`, Math.min(30, r * 0.32), ink, 'text-anchor="middle" font-weight="700"');
+          if (r >= 62) text(x.toFixed(1), (y + Math.min(30, r * 0.32) + 2).toFixed(1), `${num(km(m.km))} ${DIST_UNIT}`, Math.min(24, r * 0.25), ink, 'text-anchor="middle" opacity="0.85"');
+        }
+      }
+      return "Every month you ran is a bubble, and its area is the distance. The biggest months sit in the middle.";
+    }
+
+    function drawProfile(c) {
+      const { out, text, runs, weeks, totalKm } = c;
+      if (!weeks.length) return "";
+      const px0 = 220, px1 = 1860, py0 = 520, py1 = 2450;
+      const t0 = utcOf(weeks[0].w), t1 = Date.UTC(c.to + 1, 0, 1), X = ms => px0 + (ms - t0) / (t1 - t0) * (px1 - px0);
+      const byWeek = {}; runs.forEach(r => (byWeek[weekKey(r.date)] = byWeek[weekKey(r.date)] || []).push(r));
+      const Y = k => py1 - k / Math.max(1, totalKm) * (py1 - py0);
+      const step = niceStep(km(totalKm), 5);
+      for (let v = 0; v <= km(totalKm) * 1.0001; v += step) {
+        const y = Y(v / km(1));
+        out.push(`<line x1="${px0}" y1="${y.toFixed(1)}" x2="${px1}" y2="${y.toFixed(1)}" stroke="${P.faint}" stroke-width="1.5"/>`);
+        text(px0 - 14, (y + 7).toFixed(1), num(v), 22, P.muted, 'text-anchor="end"');
+      }
+      text(100, py0 - 50, DIST_UNIT.toUpperCase() + "  ·  TOTAL SO FAR", 20, P.muted, 'letter-spacing="2"');
+      let cum = 0; const edge = [];
+      out.push('<g shape-rendering="crispEdges">');
+      weeks.forEach(w => {
+        const a = cum; cum += w.km;
+        const xa = X(utcOf(w.w)), xb = X(utcOf(w.w) + 7 * 864e5) + 0.8;
+        const fill = w.km > 0 && byWeek[w.w] ? colourOf(byWeek[w.w]) : P.faint;
+        out.push(`<path d="M${xa.toFixed(1)} ${py1}L${xa.toFixed(1)} ${Y(a).toFixed(1)}L${xb.toFixed(1)} ${Y(cum).toFixed(1)}L${xb.toFixed(1)} ${py1}Z" fill="${fill}" opacity="0.9"/>`);
+        edge.push(`${xa.toFixed(1)} ${Y(a).toFixed(1)}`, `${xb.toFixed(1)} ${Y(cum).toFixed(1)}`);
+      });
+      out.push("</g>");
+      out.push(`<path d="M${edge.join("L")}" fill="none" stroke="${P.ink}" stroke-width="4.5" stroke-linejoin="round"/>`);
+      let lastY = -1e9;                                 // biggest first; skip one that would sit on top of the last
+      LANDMARKS.filter(([k]) => k <= totalKm * 1.001).reverse().forEach(([k, name]) => {
+        const y = Y(k);
+        if (Math.abs(y - lastY) < 40) return;
+        lastY = y;
+        out.push(`<line x1="${px0}" y1="${y.toFixed(1)}" x2="${px1}" y2="${y.toFixed(1)}" stroke="${P.ink}" stroke-width="2" stroke-dasharray="10 8" opacity="0.7"/>`);
+        text(px1, (y - 10).toFixed(1), name, 24, P.ink, 'text-anchor="end" font-weight="700"');
+      });
+      for (let y = c.from; y <= c.to; y++) {
+        const x = X(Date.UTC(y, 0, 1)); if (x < px0 - 1) continue;
+        out.push(`<line x1="${x.toFixed(1)}" y1="${py1}" x2="${x.toFixed(1)}" y2="${py1 + 12}" stroke="${P.muted}" stroke-width="2"/>`);
+        if (c.years.length < 18 || (y - c.from) % 2 === 0) text((x + 6).toFixed(1), py1 + 36, String(y), 22, P.muted);
+      }
+      return "Your total distance climbing over time: the steeper the slope, the more you were running. Dashed lines are landmarks you have run past.";
+    }
+
+    function drawCities(c) {
+      const { out, text } = c, list = citiesIn(c);
+      if (!list.length) { text(1000, 1400, "No places found yet. They are worked out from your GPS routes.", 36, P.muted, 'text-anchor="middle"'); return ""; }
+      const groups = new Map();
+      for (const a of list) {                         // grouped by state or region, biggest first
+        const key = a.region + "|" + a.country;
+        if (!groups.has(key)) groups.set(key, { region: a.region, country: a.country, items: [], runs: 0 });
+        const g = groups.get(key); g.items.push(a); g.runs += a.runs;
+      }
+      const ordered = [...groups.values()].sort((a, b) => b.runs - a.runs);
+      const countries = new Set(list.map(a => a.country)).size, maxRuns = list[0].runs;
+      text(100, 540, String(list.length), 190, P.ink, 'font-weight="800"');
+      const bigW = String(list.length).length * 105;
+      text(130 + bigW, 470, list.length === 1 ? "CITY" : "CITIES", 44, P.ink, 'font-weight="800" letter-spacing="6"');
+      text(130 + bigW, 520, `in ${countries} ${countries === 1 ? "country" : "countries"}, ${ordered.length} ${ordered.length === 1 ? "region" : "regions"}`, 30, P.muted);
+
+      const x0 = 100, width = 1800, top = 680, limit = 2640;
+      const ruler = document.createElement("canvas").getContext("2d");
+      const measure = (s, size, weight = 700) => { ruler.font = `${weight} ${size}px ${FONT}`; return ruler.measureText(s).width; };
+      function layout(f) {                            // tags flow and wrap; sized by f
+        const placed = []; let y = top;
+        for (const g of ordered) {
+          placed.push({ kind: "head", y, g });
+          y += 52;
+          let x = x0, rowH = 0, rowTop = y;
+          for (const a of g.items) {
+            const size = Math.max(22, (26 + 46 * Math.sqrt(a.runs / maxRuns)) * f), nameW = measure(a.name, size);
+            const w = nameW + 10 + measure(num(a.runs), size * 0.42, 400) + 40 * Math.max(1, f);
+            if (x + w > x0 + width && x > x0) { x = x0; rowTop += rowH * 1.3; rowH = 0; }
+            rowH = Math.max(rowH, size);
+            placed.push({ kind: "tag", x, y: rowTop + size, a, size, nameW });
+            x += w;
+          }
+          y = rowTop + rowH * 1.3 + 36 * f;
+        }
+        return { placed, bottom: y };
+      }
+      let f = 2.4, lay = layout(f);                   // as big as fits: start large and shrink
+      while (lay.bottom > limit && f > 0.3) { f *= 0.95; lay = layout(f); }
+      for (const it of lay.placed) {
+        if (it.kind === "head") {
+          text(x0, it.y + 24, `${(it.g.region || "").toUpperCase()}${it.g.region ? "  ·  " : ""}${countryName(it.g.country).toUpperCase()}`, 22, P.muted, 'letter-spacing="3"');
+          out.push(`<line x1="${x0}" y1="${it.y + 36}" x2="${x0 + width}" y2="${it.y + 36}" stroke="${P.ring}" stroke-width="1.5"/>`);
+        } else {
+          const col = yearColour(it.a.first);
+          text(it.x, it.y, it.a.name, it.size, col, 'font-weight="700"');
+          text(it.x + it.nameW + 10, it.y, num(it.a.runs), it.size * 0.42, P.muted);
+        }
+      }
+      return "Every city you have run in, bigger where you run more. Places a few kilometres from a busier one count as one city. Colour is the year you first ran there.";
+    }
+
+    const MODES = {
+      rings:         { label: "Rings",            draw: drawRings,         note: "Each ring is a year, read clockwise from January. Each tick is a run: longer means further. The stripes show every week of your running, the shapes are the routes you repeat, and the line under the title names the cities you have run in (untick City names before sharing publicly)." },
+      grid:          { label: "Calendar grid",    draw: drawGrid,          note: "A column per week and a row per weekday, one block per year. Rest streaks and injury gaps show up at once." },
+      spiral:        { label: "Spiral",           draw: drawSpiral,        note: "A single line spiralling outward from your first run to your latest, one turn per year, with a spike for each week. Tick 3D view to raise the weeks into columns you can tilt and rotate." },
+      clock:         { label: "Year clock",       draw: drawClock,         colour: "year", note: "Twelve months round a circle, and one shape per year overlaid on it, so you can compare years directly. Colours are always by year in this mode." },
+      mountains:     { label: "Mountain range",   draw: drawMountains,     colour: "year", note: "One ridge of weekly distance per year, stacked like a mountain range. Colours are always by year in this mode." },
+      constellation: { label: "Constellation",    draw: drawConstellation, routes: true, note: "The routes you repeat, drawn as shapes with no map. A familiar shape can hint at where you live, so think before sharing it publicly." },
+      starburst:     { label: "Starburst",        draw: drawStarburst,     routes: true, note: "Every route you have run, drawn out from its own start. Positions are never used, only the shape and reach, but think before sharing it publicly." },
+      ribbon:        { label: "Ribbon",           draw: drawRibbon,        note: "All of your runs laid end to end in one long ribbon, wrapped into lines, with landmarks marking how far you have gone." },
+      scatter:       { label: "Pace scatter",     draw: drawScatter,       note: "Every run as a dot by date and pace, with a rolling median line. This is the one to watch for a speed block." },
+      bubbles:       { label: "Month bubbles",    draw: drawBubbles,       note: "Every month as a bubble with area equal to distance, packed together." },
+      cities:        { label: "Cities",           draw: drawCities,        colour: "year", note: "Every city you have run in, found from your GPS tracks with an offline place list (nothing is looked up online), grouped by state and sized by how often you ran there. A city name says where you live, so think before sharing it publicly. Colours are by the year you first ran there." },
+      profile:       { label: "Distance profile", draw: drawProfile,       note: "Your cumulative distance as a mountain profile, with real-world landmarks as dashed lines." },
+    };
+
+    // --- the poster ---------------------------------------------------------------------------------
+    function build() {
+      P = PALETTES[opts.theme];
+      const from = Number($("from").value), to = Number($("to").value);
+      const years = []; for (let y = from; y <= to; y++) years.push(y);
+      const runs = data.runs.filter(r => yearOf(r.date) >= from && yearOf(r.date) <= to);
+      const weeks = data.weeks.filter(w => yearOf(w.w) >= from && yearOf(w.w) <= to);
+      const loads = runs.map(r => r.load).filter(v => v != null).sort((a, b) => a - b);
+      scale = { from, to, loadMax: quantile(loads, 0.95) || 100 };
+      const totalKm = runs.reduce((s, r) => s + r.km, 0);
+      const hours = data.runs.length ? data.stats.hours * (totalKm / (data.stats.km || 1)) : 0;
+      const out = [];
+      const text = (x, y, s, size, fill, extra = "") => out.push(`<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" font-family="${FONT}" ${extra}>${esc(s)}</text>`);
+      const showRoutes = $("opt-routes").checked && data.routes.length > 0;
+      const c = { out, text, from, to, years, runs, weeks, totalKm, showPb: $("opt-pb").checked,
+                  showStripes: $("opt-stripes").checked, showRoutes, showCities: $("opt-cities").checked };
+
+      out.push(`<rect width="${W}" height="${H}" fill="${P.bg}"/>`);
+      text(1000, 175, ($("title").value || "My running life").toUpperCase(), 112, P.ink, 'text-anchor="middle" font-weight="800" letter-spacing="6"');
+      text(1000, 245, `${from === to ? from : from + " – " + to}   ·   ${num(runs.length)} runs   ·   ${num(km(totalKm))} ${DIST_UNIT}   ·   ${num(hours)} hours`, 36, P.muted, 'text-anchor="middle" letter-spacing="2"');
+
+      const caption = MODES[opts.mode].draw(c) || "";
+
+      // footer: what the colours mean, and a line of explanation
+      const legend = SCHEMES[schemeNow()].legend();
+      let lx = 100;
+      const heading = "COLOUR: " + (MODES[opts.mode].colour === "year" ? "YEAR" : SCHEMES[opts.scheme].label.toUpperCase());
+      text(lx, 2702, heading, 20, P.muted, 'letter-spacing="2"');
+      lx += 40 + heading.length * 14;
+      legend.forEach(([col, label]) => {
+        out.push(`<circle cx="${lx + 10}" cy="2694" r="10" fill="${col}"/>`);
+        text(lx + 30, 2702, label, 26, P.ink);
+        lx += 60 + label.length * 15;
+      });
+      if (opts.mode === "rings" && c.showPb) {
+        out.push(`<circle cx="${lx + 10}" cy="2694" r="10" fill="${P.pb}" stroke="${P.bg}" stroke-width="2"/>`);
+        text(lx + 30, 2702, "Personal best", 26, P.ink);
+      }
+      text(100, 2748, caption, 21, P.muted);
+      text(100, 2782, "Made on my own computer with Fitness Tracker. Nothing was uploaded.", 19, P.muted, 'opacity="0.7"');
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${out.join("")}</svg>`;
+    }
+
+    function syncControls() {
+      const m = MODES[opts.mode];
+      document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("active", b.dataset.mode === opts.mode));
+      $("scheme").disabled = m.colour === "year";
+      document.querySelectorAll("[data-only]").forEach(e => {
+        const only = e.dataset.only;                      // "spiral3d" = the spiral with the 3D box ticked
+        e.hidden = only === "spiral3d" ? !(opts.mode === "spiral" && $("opt-3d").checked) : opts.mode !== only;
+      });
+      $("mode-note").textContent = m.note + " Everything is made on this computer; nothing is uploaded.";
+    }
+
+    function render() {
+      if (!data || !data.runs.length) return;
+      syncControls();
+      $("poster").innerHTML = build();
+    }
+
+    // --- export -------------------------------------------------------------------------------------------
+    function download(blob, name) {
+      if (window.AndroidPoster) {                   // inside the Android app: hand the file over to be saved
+        const r = new FileReader();
+        r.onload = () => AndroidPoster.save(name, blob.type || "application/octet-stream", String(r.result).split(",")[1]);
+        r.readAsDataURL(blob);
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    }
+    const fileBase = () => `running-life-${opts.mode}${opts.mode === "spiral" && $("opt-3d").checked ? "-3d" : ""}-${$("from").value}-${$("to").value}-${opts.theme}`;
+
+    $("dl-svg").addEventListener("click", () => {
+      const svg = '<?xml version="1.0" encoding="UTF-8"?>\n' + build();
+      download(new Blob([svg], { type: "image/svg+xml" }), fileBase() + ".svg");
+      $("status").textContent = "SVG saved.";
+    });
+
+    $("dl-png").addEventListener("click", () => {
+      $("status").textContent = "Rendering…";
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = W; canvas.height = H;
+        canvas.getContext("2d").drawImage(img, 0, 0, W, H);
+        canvas.toBlob(b => {
+          if (!b) { $("status").textContent = "Could not make the PNG in this browser; use the SVG."; return; }
+          download(b, fileBase() + ".png"); $("status").textContent = `PNG saved (${W} × ${H}).`;
+        }, "image/png");
+      };
+      img.onerror = () => { $("status").textContent = "Could not render the PNG; use the SVG."; };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(build());
+    });
+
+    // --- controls -------------------------------------------------------------------------------------------
+    for (const id of ["title", "from", "to", "opt-stripes", "opt-pb", "opt-routes", "opt-cities", "opt-3d", "tilt", "rot"]) $(id).addEventListener("input", render);
+    $("scheme").innerHTML = Object.entries(SCHEMES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+    $("scheme").value = opts.scheme;
+    $("modes").innerHTML = Object.entries(MODES).map(([k, v]) => `<button data-mode="${k}">${v.label}</button>`).join("");
+    $("scheme").addEventListener("change", () => { opts.scheme = $("scheme").value; render(); });
+    $("modes").addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      opts.mode = b.dataset.mode; render();
+    });
+    $("from").addEventListener("change", () => { if (Number($("from").value) > Number($("to").value)) $("to").value = $("from").value; render(); });
+    $("to").addEventListener("change", () => { if (Number($("to").value) < Number($("from").value)) $("from").value = $("to").value; render(); });
+    $("theme").addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      document.querySelectorAll("#theme button").forEach(x => x.classList.toggle("active", x === b));
+      opts.theme = b.dataset.theme; render();
+    });
+
+    (async () => {
+      data = await (await fetch("/analytics/poster")).json();
+      $("empty").hidden = data.runs.length > 0;
+      if (!data.runs.length) return;
+      const first = yearOf(data.stats.first), last = yearOf(data.stats.last), all = [];
+      for (let y = first; y <= last; y++) all.push(y);
+      for (const id of ["from", "to"]) $(id).innerHTML = all.map(y => `<option value="${y}">${y}</option>`).join("");
+      $("from").value = first; $("to").value = last;
+      render();
+    })();
+  </script>
+</body>
+</html>

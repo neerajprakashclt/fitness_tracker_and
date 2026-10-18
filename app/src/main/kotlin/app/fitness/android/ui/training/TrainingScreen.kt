@@ -47,7 +47,7 @@ import kotlin.math.abs
 private enum class Tab(val label: String) { FITNESS("Fitness"), CURVES("Curves & records") }
 
 @Composable
-fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onOpen: (String) -> Unit) {
+fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onPoster: () -> Unit, onOpen: (String) -> Unit) {
     val t = Fitness.theme
     var tab by rememberSaveable { mutableStateOf(Tab.FITNESS) }
     Column(
@@ -60,6 +60,10 @@ fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onOpen: (String) -> Un
             modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
         )
         SegmentedControl(Tab.entries, tab, { it.label }, { tab = it })
+        ThemedCard(onClick = onPoster) {
+            Text("Your running life, as a poster", color = t.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Every run you have done, drawn as rings, a spiral, a mountain range and more. Save it as an image.", color = t.muted, fontSize = 12.sp)
+        }
         when (tab) {
             Tab.FITNESS -> FitnessTab(vm)
             Tab.CURVES -> CurvesTab(vm, fmt, onOpen)

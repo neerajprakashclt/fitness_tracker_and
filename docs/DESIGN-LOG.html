@@ -562,7 +562,24 @@
     <h4>Issue G2: pace curve shaded on the wrong side</h4>
     <dl><dt>Symptom</dt><dd>On the phone the pace curve's fill covered the area above the line.</dd><dt>Cause</dt><dd>Pace is drawn negated so faster is higher; the fill runs toward zero.</dd><dt>Solution</dt><dd>No fill on the pace and speed curves; power keeps it.</dd></dl>
   </div>
-  <p><strong>Phase 2 is complete.</strong> Next is phase 4, the heatmap.</p>
+  <p><strong>Phase 2 is complete.</strong></p>
+
+  <h3>Phase 2 follow-up: poster, icon, a crash <span class="entry-date">2026-10-18</span></h3>
+  <p>The user skipped the heatmap for now and asked for the poster and an icon.
+     <strong>Poster:</strong> the PC page (<code>poster.html</code>, 11 modes, 7 colour schemes) is bundled as an asset and shown in a WebView; it fetches one JSON payload, which <code>Poster.data</code> builds in <code>:core</code>
+     (runs, weeks, personal-best timeline, longest streak, per-run route shapes relative to each route's own start, so no position leaves the phone).
+     The personal-best timeline and the weekly streak (new <code>Volume</code> object) match the PC's fixture. Only requests to the app's own pages are answered; downloads (PNG, SVG) go to Pictures or Downloads in "Fitness Tracker".
+     Not yet possible because the analytics are not ported: run-type colours and tempo stripes, pace-vs-threshold colours, repeated-route shapes (Constellation), city names. The default colour scheme is therefore "Year".
+     <strong>Icon:</strong> an adaptive icon, a white lightning bolt on an orange gradient, with a single-colour layer for themed icons.</p>
+  <div class="issue">
+    <h4>Issue G3: opening a marathon from the records list crashed the app</h4>
+    <dl>
+      <dt>Symptom</dt><dd>Tapping the Marathon row in Training, Curves and records closed the app.</dd>
+      <dt>Cause</dt><dd>The activity detail charts average many samples into each point for long activities, which gave times like 1234.3333; the chart library rejects x values with more than four decimals. Any activity of about 2 hours or more would have done it, from the feed too.</dd>
+      <dt>Solution</dt><dd>Chart times are rounded to whole seconds; a unit test covers a 15,000-sample activity. Checked on the phone with the marathon.</dd>
+    </dl>
+  </div>
+  <p>Next: the analytics the poster is missing (run types, critical speed, route matching, places), then the heatmap (phase 4) when wanted.</p>
 
   <!-- LOG-ENTRIES-END -->
 </section>
@@ -598,6 +615,7 @@
     <tr><td>F4</td><td>I reset settings the user had chosen</td><td><span class="tag done">restored; imperial is now the default</span></td></tr>
     <tr><td>G1</td><td>No <code>rint</code> in Kotlin</td><td><span class="tag done">use round()</span></td></tr>
     <tr><td>G2</td><td>Pace curve shaded on the wrong side</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>G3</td><td>Long activities crashed the detail charts</td><td><span class="tag done">fixed</span></td></tr>
   </table>
 </section>
 

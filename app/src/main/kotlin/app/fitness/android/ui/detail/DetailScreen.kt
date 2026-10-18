@@ -100,7 +100,7 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, fmt
                 streams?.avgHeartRate?.let { add("Avg HR" to "%.0f bpm".format(it)) }
                 streams?.maxHeartRate?.let { add("Max HR" to "%.0f bpm".format(it)) }
                 load?.normalizedPower?.let { add("Normalized power" to "%.0f W".format(it)) }
-                load?.let { add("Training load" to "%.0f (%s)".format(it.load, loadMethodLabel(it.method))) }
+                load?.let { add("Training load · ${loadMethodLabel(it.method)}" to "%.0f".format(it.load)) }
             }
             rows.chunked(2).forEachIndexed { i, pair ->
                 if (i > 0) Box(Modifier.height(14.dp))

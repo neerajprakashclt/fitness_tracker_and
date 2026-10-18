@@ -28,7 +28,8 @@ object ChartSeries {
                 val v = values[j]
                 if (!v.isNaN() && keep(v) && !time[j].isNaN()) { sx += time[j]; sy += v; c++ }
             }
-            if (c > 0) { xs += sx / c; ys += sy / c }
+            // Whole seconds: the chart library rejects x-values with more than four decimals (a bucket mean like 1234.3333).
+            if (c > 0) { xs += Math.rint(sx / c); ys += sy / c }
             i += size
         }
         return Series(xs.toDoubleArray(), ys.toDoubleArray())

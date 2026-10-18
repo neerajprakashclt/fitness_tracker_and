@@ -91,7 +91,7 @@ class AnalyticsParityTest {
         val want = Golden.root.obj("full_history")
         val today = LocalDate.parse(want["today"].str()!!)
 
-        class Row(val hash: String, val sport: String, val date: LocalDate, val duration: Double?, val metrics: StreamMetrics, val bests: Bests)
+        class Row(val hash: String, val sport: String, val start: java.time.Instant, val date: LocalDate, val duration: Double?, val metrics: StreamMetrics, val bests: Bests)
 
         fun activityId(name: String): Long =
             Regex("^[0-9]+").find(name.replace(Regex("^[0-9a-f]{12}_"), ""))?.value?.toLongOrNull() ?: -1
@@ -107,7 +107,7 @@ class AnalyticsParityTest {
             if (d !is ImportDecision.Import || d.fileHash in rows) continue
             val a = d.activity
             val sport = pcSport[d.fileHash] ?: d.sport
-            rows[d.fileHash] = Row(d.fileHash, sport, TrainingLoad.localDate(a.startTime), a.duration,
+            rows[d.fileHash] = Row(d.fileHash, sport, a.startTime, TrainingLoad.localDate(a.startTime), a.duration,
                 TrainingLoad.streamMetrics(a.streams), Curves.bestEfforts(sport, a.streams))
         }
         println("replayed ${order.size} files into ${rows.size} activities")
@@ -169,6 +169,19 @@ class AnalyticsParityTest {
                 }
             }
         }
+        // Personal-best timeline and weekly streak (the poster's inputs).
+        val running = rows.values.filter { it.sport == "running" }.sortedBy { it.start }
+        val timeline = Volume.recordsTimeline(running.map { Curves.Entry(it.hash, it.date, it.bests) })
+        val wantTimeline = (want.obj("records_timeline")["distances"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+        bad.check("record distances", wantTimeline.size == timeline.size) { "pc=${wantTimeline.size} kotlin=${timeline.size}" }
+        for ((w, g) in wantTimeline.zip(timeline)) {
+            val wr = (w["records"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            bad.check("records ${g.name}", wr.size == g.records.size && wr.zip(g.records).all { (a, b) -> a["date"].str() == b.date.toString() && close(a["seconds"].num(), b.seconds) }) {
+                "pc=${wr.map { it["date"].str() to it["seconds"].num() }} kotlin=${g.records.map { it.date to it.seconds }}" }
+        }
+        bad.check("longest streak", want.obj("consistency")["longest_streak_weeks"].num()!!.toInt() == Volume.longestStreakWeeks(running.map { it.date })) {
+            "pc=${want.obj("consistency")["longest_streak_weeks"].num()} kotlin=${Volume.longestStreakWeeks(running.map { it.date })}" }
+
         println("days ${series.size}; mismatches: ${bad.items.size}")
         bad.items.take(60).forEach { println("  MISMATCH $it") }
         assertTrue(bad.items.isEmpty(), "${bad.items.size} mismatches, first: ${bad.items.firstOrNull()}")

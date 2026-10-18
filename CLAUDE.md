@@ -25,7 +25,13 @@ same-run detection, rebuild from the original files, backup and restore. Phase 2
 training load (TSS / TRIMP / flat rate), CTL/ATL/TSB, best efforts and power/pace curves, estimated or user-set thresholds,
 all matching the PC (0 mismatches on the 77 files and the whole history); a Training tab (fitness chart, curves, best efforts),
 a thresholds editor in Settings and a load tile on the activity. Not ported from the PC's `stream_metrics` yet: efficiency and
-the run profile (they belong to the efficiency and run-type phases). Next: phase 4 (heatmap). Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
+the run profile (they belong to the efficiency and run-type phases). After phase 2 the user asked for the running-life poster and an app icon instead of the heatmap: the poster is the PC's own
+`poster.html` bundled in `app/src/main/assets/poster/` and hosted in a WebView (`ui/poster/PosterScreen.kt`; the page's one
+data request is answered from `Poster.data` in `:core`, every other request is refused, downloads are saved by the
+`AndroidPoster` bridge into Pictures/Fitness Tracker). Run types, repeated-route shapes, pace-vs-threshold and city names are
+not ported, so the poster uses the "year" colour scheme and leaves those parts empty. Icon: adaptive lightning bolt on orange
+(`res/drawable/ic_launcher_*`, with a monochrome layer for themed icons). Next: the analytics the poster is missing (run
+types, critical speed, route matching, places), then phase 4 (heatmap), which the user does not need for now. Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
 terrain elevation, phase 7). Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures and oracles made from the PC app
 are in `seed/` (`golden/`, `pc-activities.json`; gitignored).
 

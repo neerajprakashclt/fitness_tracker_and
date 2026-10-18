@@ -34,6 +34,7 @@ import app.fitness.android.ui.activities.ActivitiesScreen
 import app.fitness.android.ui.activities.ActivitiesViewModel
 import app.fitness.android.ui.detail.DetailScreen
 import app.fitness.android.ui.detail.DetailViewModel
+import app.fitness.android.ui.poster.PosterScreen
 import app.fitness.android.ui.settings.SettingsScreen
 import app.fitness.android.ui.training.TrainingScreen
 import app.fitness.android.ui.training.TrainingViewModel
@@ -53,6 +54,7 @@ class ImportActions(
 private object Routes {
     const val ACTIVITIES = "activities"
     const val TRAINING = "training"
+    const val POSTER = "poster"
     const val SETTINGS = "settings"
     const val DETAIL = "activity/{hash}"
     fun detail(hash: String) = "activity/$hash"
@@ -84,8 +86,9 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
                 }
                 composable(Routes.TRAINING) {
                     val vm: TrainingViewModel = viewModel(factory = viewModelFactory { initializer { TrainingViewModel(app.analytics) } })
-                    TrainingScreen(vm, fmt) { nav.navigate(Routes.detail(it)) }
+                    TrainingScreen(vm, fmt, onPoster = { nav.navigate(Routes.POSTER) }) { nav.navigate(Routes.detail(it)) }
                 }
+                composable(Routes.POSTER) { PosterScreen(app.analytics, units) { nav.popBackStack() } }
                 composable(Routes.SETTINGS) {
                     val count by app.repository.count().collectAsStateWithLifecycle(initialValue = null)
                     SettingsScreen(app, actions, count)

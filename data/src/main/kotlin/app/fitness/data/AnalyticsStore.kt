@@ -86,8 +86,24 @@ data class ActivityLoadRow(
     @ColumnInfo(name = "normalized_power") val normalizedPower: Double?,
 )
 
+data class PosterRow(
+    @ColumnInfo(name = "file_hash") val fileHash: String,
+    @ColumnInfo(name = "start_time") val startTime: String,
+    val distance: Double?,
+    val duration: Double?,
+    val load: Double?,
+    val polyline: String?,
+)
+
 @Dao
 interface AnalyticsDao {
+    @Query(
+        """SELECT a.file_hash, a.start_time, a.distance, a.duration, m.load, r.polyline FROM activities a
+           LEFT JOIN activity_metrics m ON m.file_hash = a.file_hash LEFT JOIN routes r ON r.file_hash = a.file_hash
+           WHERE a.sport = 'running' ORDER BY a.start_time"""
+    )
+    suspend fun posterRows(): List<PosterRow>
+
     /** Activities with no current metrics or bests. */
     @Query(
         """SELECT a.file_hash FROM activities a

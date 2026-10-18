@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
@@ -146,6 +147,20 @@ class AnalyticsRepository(private val db: FitnessDatabase, private val repo: Act
 
     suspend fun loadOf(hash: String): LoadInfo? = dao.loadOf(hash)?.takeIf { it.load != null && it.loadMethod != null }
         ?.let { LoadInfo(it.load!!, it.loadMethod!!, it.normalizedPower) }
+
+    /** The running-life poster's payload as JSON text, for the poster page to fetch. */
+    suspend fun posterJson(): String = withContext(Dispatchers.Default) {
+        val runs = dao.posterRows().mapNotNull { r ->
+            val start = Times.parse(r.startTime) ?: return@mapNotNull null
+            val lines = r.polyline?.let { p -> json.parseToJsonElement(p).jsonArray.map { it.jsonPrimitive.content } } ?: emptyList()
+            app.fitness.core.PosterRun(r.fileHash, start, r.distance, r.duration, r.load, lines)
+        }
+        val efforts = dao.bestsFor("running", EMPTY_BESTS).mapNotNull { r ->
+            val start = Times.parse(r.startTime) ?: return@mapNotNull null
+            Curves.Entry(r.fileHash, TrainingLoad.localDate(start), decode(r.data))
+        }
+        app.fitness.core.Poster.data(runs, app.fitness.core.Volume.recordsTimeline(efforts), LocalDate.now()).toString()
+    }
 
     /** Sports that have any best-effort data, most frequent first. */
     suspend fun curveSports(): List<String> = dao.bestSports(EMPTY_BESTS).map { it.sport }

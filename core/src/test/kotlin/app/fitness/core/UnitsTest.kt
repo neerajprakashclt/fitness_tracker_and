@@ -81,6 +81,14 @@ class ChartSeriesTest {
     }
 
     @Test
+    fun bucketTimesAreWholeSecondsSoLongActivitiesCanBeCharted() {
+        // A marathon: 15,000 samples into 400 buckets of 38 gives bucket means like 18.5 and 56.5 ... never more than whole seconds.
+        val time = DoubleArray(15001) { it.toDouble() }
+        val s = ChartSeries.bucketMean(time, DoubleArray(15001) { 150.0 })
+        assertEquals(true, s.x.all { it == Math.rint(it) })
+    }
+
+    @Test
     fun clippingKeepsGlitchesFromFlatteningTheChart() {
         val y = DoubleArray(100) { 5.0 + it * 0.01 }.also { it[50] = 500.0 }
         assertEquals(true, ChartSeries.clipToQuantiles(y).max() < 7.0)
