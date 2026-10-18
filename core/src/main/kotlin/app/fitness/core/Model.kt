@@ -26,8 +26,8 @@ data class ParsedLap(
 class ParsedActivity(
     val sport: String,
     val startTime: Instant,
-    /** The device timer, in seconds. The stored duration (moving time) is derived from this and the track in phase 1. */
-    val timerSeconds: Double?,
+    /** Moving time in seconds, as the PC app defines it (FIT: the device timer unless the track shows less movement). */
+    val duration: Double?,
     val distance: Double?,
     val elevationGain: Double?,
     val device: String?,

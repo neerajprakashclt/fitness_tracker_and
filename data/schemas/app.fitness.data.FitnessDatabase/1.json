@@ -1,0 +1,258 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "ca8fc5694b4e25d9d5adef831f09e417",
+    "entities": [
+      {
+        "tableName": "activities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file_hash` TEXT NOT NULL, `sport` TEXT NOT NULL, `start_time` TEXT NOT NULL, `duration` REAL, `distance` REAL, `elevation_gain` REAL, `device` TEXT, `source_file` TEXT NOT NULL, `imported_at` TEXT NOT NULL, PRIMARY KEY(`file_hash`))",
+        "fields": [
+          {
+            "fieldPath": "fileHash",
+            "columnName": "file_hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sport",
+            "columnName": "sport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTime",
+            "columnName": "start_time",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "distance",
+            "columnName": "distance",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "elevationGain",
+            "columnName": "elevation_gain",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "device",
+            "columnName": "device",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceFile",
+            "columnName": "source_file",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importedAt",
+            "columnName": "imported_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file_hash"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_activities_start_time",
+            "unique": false,
+            "columnNames": [
+              "start_time"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_activities_start_time` ON `${TABLE_NAME}` (`start_time`)"
+          },
+          {
+            "name": "index_activities_sport",
+            "unique": false,
+            "columnNames": [
+              "sport"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_activities_sport` ON `${TABLE_NAME}` (`sport`)"
+          }
+        ]
+      },
+      {
+        "tableName": "laps",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file_hash` TEXT NOT NULL, `lap_index` INTEGER NOT NULL, `start_time` TEXT, `duration` REAL, `distance` REAL, `avg_heart_rate` REAL, `max_heart_rate` REAL, `avg_power` REAL, `avg_speed` REAL, `elevation_gain` REAL, PRIMARY KEY(`file_hash`, `lap_index`), FOREIGN KEY(`file_hash`) REFERENCES `activities`(`file_hash`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "fileHash",
+            "columnName": "file_hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lapIndex",
+            "columnName": "lap_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startTime",
+            "columnName": "start_time",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "distance",
+            "columnName": "distance",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "avgHeartRate",
+            "columnName": "avg_heart_rate",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "maxHeartRate",
+            "columnName": "max_heart_rate",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "avgPower",
+            "columnName": "avg_power",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "avgSpeed",
+            "columnName": "avg_speed",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "elevationGain",
+            "columnName": "elevation_gain",
+            "affinity": "REAL"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file_hash",
+            "lap_index"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "activities",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "file_hash"
+            ],
+            "referencedColumns": [
+              "file_hash"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "routes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file_hash` TEXT NOT NULL, `version` INTEGER NOT NULL, `polyline` TEXT NOT NULL, PRIMARY KEY(`file_hash`), FOREIGN KEY(`file_hash`) REFERENCES `activities`(`file_hash`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "fileHash",
+            "columnName": "file_hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "polyline",
+            "columnName": "polyline",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file_hash"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "activities",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "file_hash"
+            ],
+            "referencedColumns": [
+              "file_hash"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "changes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`seq` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `entity` TEXT NOT NULL, `key` TEXT NOT NULL, `op` TEXT NOT NULL, `changed_at` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entity",
+            "columnName": "entity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "op",
+            "columnName": "op",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "changedAt",
+            "columnName": "changed_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "seq"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ca8fc5694b4e25d9d5adef831f09e417')"
+    ]
+  }
+}

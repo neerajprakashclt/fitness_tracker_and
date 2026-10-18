@@ -80,13 +80,32 @@ object FitImporter {
         return ParsedActivity(
             sport = sportName(session),
             startTime = start,
-            timerSeconds = timer,
+            duration = duration(streams, timer),
             distance = distance,
             elevationGain = gain,
             device = device(messages.fileIdMesgs),
             streams = streams,
             laps = laps,
         )
+    }
+
+    /** The device's timer must exceed the track-derived moving time by more than this before the moving time replaces it. */
+    private const val TIMER_TOLERANCE = 0.01
+
+    /**
+     * PC: `_duration`. Moving time for GPS activities, otherwise the device's timer time. The timer already excludes
+     * the watch's own auto-pauses; watches without auto-pause keep it running while you stand still, so for a GPS
+     * activity the time spent moving is derived from the track and capped at the timer. Indoor and pool activities
+     * keep the timer.
+     */
+    internal fun duration(streams: Map<String, DoubleArray>, timer: Double?): Double? {
+        val time = streams["time"]
+        val distance = streams["distance"]
+        if ("lat" !in streams || distance == null || distance.isEmpty() || time == null || time.isEmpty()) return timer
+        val moving = Common.movingTime(time, Common.ffill(distance))
+        if (moving == 0.0) return timer
+        if (timer == null || timer == 0.0) return moving
+        return if (moving >= timer * (1 - TIMER_TOLERANCE)) timer else moving
     }
 
     /**

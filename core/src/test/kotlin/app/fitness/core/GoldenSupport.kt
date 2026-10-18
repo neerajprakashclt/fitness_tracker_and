@@ -23,6 +23,9 @@ object Golden {
     val root: JsonObject by lazy { Json.parseToJsonElement(File(dir, "golden.json").readText()).jsonObject }
     val perFile: List<JsonObject> by lazy { root.getValue("per_file").jsonArray.map { it.jsonObject } }
 
+    /** The file as the PC archived it (possibly gzipped). */
+    fun rawBytes(name: String): ByteArray = File(dir, "inputs/$name").readBytes()
+
     fun inputBytes(name: String): ByteArray {
         val raw = File(dir, "inputs/$name").readBytes()
         return if (name.endsWith(".gz")) GZIPInputStream(raw.inputStream()).readBytes() else raw

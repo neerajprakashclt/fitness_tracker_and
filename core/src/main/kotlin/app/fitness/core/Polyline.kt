@@ -2,6 +2,28 @@ package app.fitness.core
 
 /** Google encoded polyline (precision 5), the format routes are stored in. Port of `decode_polyline`. */
 object Polyline {
+    /** Encode points as a Google polyline, precision 5 (PC: `encode_polyline`). Rounds half to even like Python's `round`. */
+    fun encode(lat: DoubleArray, lon: DoubleArray): String {
+        val out = StringBuilder()
+        var prevLat = 0L
+        var prevLon = 0L
+        for (i in lat.indices) {
+            val ilat = Math.rint(lat[i] * 1e5).toLong()
+            val ilon = Math.rint(lon[i] * 1e5).toLong()
+            for (delta in longArrayOf(ilat - prevLat, ilon - prevLon)) {
+                var v = if (delta < 0) (delta shl 1).inv() else delta shl 1
+                while (v >= 0x20) {
+                    out.append(((0x20L or (v and 0x1F)) + 63).toInt().toChar())
+                    v = v shr 5
+                }
+                out.append((v + 63).toInt().toChar())
+            }
+            prevLat = ilat
+            prevLon = ilon
+        }
+        return out.toString()
+    }
+
     /** Decoded points as [lat, lon] pairs. */
     fun decode(encoded: String): List<DoubleArray> {
         val out = ArrayList<DoubleArray>()

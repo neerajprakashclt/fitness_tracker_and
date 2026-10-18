@@ -12,6 +12,10 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 dependencies {
     implementation(libs.garmin.fit)
     implementation(libs.kotlinx.serialization.json)
+    // XmlPullParser is part of Android, so the app must not bundle a second copy; the JVM tests need one.
+    compileOnly(libs.xmlpull)
+    testImplementation(libs.xmlpull)
+    testImplementation(libs.kxml2)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.launcher)

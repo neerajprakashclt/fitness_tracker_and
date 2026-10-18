@@ -24,6 +24,7 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":data"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
@@ -31,7 +32,10 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.navigation.compose)
     implementation(libs.vico.compose.m3)
     implementation(libs.maplibre)
+    implementation(libs.okhttp)         // MapLibre already runs on it; compiled against to send our own User-Agent for OSM tiles
     implementation(libs.kotlinx.serialization.json)
 }

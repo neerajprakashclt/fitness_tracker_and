@@ -16,10 +16,19 @@ right. Read it before porting a feature. Its `CLAUDE.md` records the lessons lea
 
 ## Status
 
-**Phase 0 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase). The Gradle
-project exists with `:core`, `:data` and `:app` (the app is still a throwaway spike host), versions pinned in
-`gradle/libs.versions.toml`. Next: phase 1, import and browse, with the theme system. Background:
-`docs/FEATURE-ANALYSIS.md`. Real-data fixtures made by the PC app are in `seed/golden/` (gitignored).
+**Phases 0 and 1 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase). Phase 1 delivered:
+FIT, GPX and TCX import with parse-level parity to the PC (77 fixtures, 0 mismatches; the whole 3,265-file history
+imports with 0 failures), Room database keyed by `file_hash`, the activity feed and detail screens (route, tiles,
+charts, laps), import by file picker and share, delete with tombstones, and the theme system (Strava, iOS style,
+Terminal green, Amber, Solarized, Gruvbox, Nord, Dracula). Next: phase 2, core analytics (resampling, load, curves,
+bests, thresholds). Not yet built: similar-run detection, bulk import with WorkManager and the seed push (phase 3).
+Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures made by the PC app are in `seed/golden/` (gitignored).
+
+Code map: `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `Common` (moving
+time and the other PC helpers), `Routes`, `StreamCodec`, `Format`; `:data` `FitnessDatabase`, `ActivityRepository`,
+`ImportRunner`; `:app` `ui/theme/Theme.kt` (tokens), `ui/components/` (themed building blocks: use these, not raw
+Material, so a theme can change structure), `ui/activities/`, `ui/detail/`, `ui/settings/`. Display preferences are in
+SharedPreferences (`ui/Prefs.kt`); the street map is off by default and the app then makes no network requests.
 
 ## Architecture (decided — don't re-litigate without reason)
 
@@ -63,7 +72,13 @@ themes" section of `docs/DESIGN-LOG.html`.
 - Test emulator: AVD `Pixel7_Spike` (3 GB RAM, Android 17, API 37). The stock 2 GB device is too small for Compose plus
   MapLibre. Judge speed on the real Pixel 7, not the emulator.
 - The PC's disk was nearly full (about 4 GB free). The emulator refuses to start below its disk requirement.
-- Save emulator screenshots with `adb shell screencap` and `adb pull`, never with a PowerShell `>` redirect.
+- The real Pixel 7 (API 37) is the main test device since phase 1; `adb` is on the user PATH. Save screenshots with
+  `adb shell screencap` and `adb pull`, never with a PowerShell `>` redirect.
+- In Git Bash set `MSYS_NO_PATHCONV=1` for adb commands with `/sdcard/...` paths, and give Windows `adb` Windows paths
+  (it cannot see Git Bash's `/tmp`). Files pushed with `adb push` show in the system picker under the "Pixel 7"
+  storage root, not under "Downloads" (that root only lists indexed media).
+- If a Gradle run dies in the Kotlin incremental cache (`dirty-sources.txt`), delete `core/build/kotlin` and rerun.
+- Tests that must return void: write `fun x() = runBlocking<Unit> { ... }`.
 - Instrumented tests use JUnit 4's `@Test`; JVM tests in `:core` use `kotlin.test`.
 - The tests run in the `America/New_York` zone (set in `core/build.gradle.kts`) to match the golden fixtures.
 - FIT enum names (sport, manufacturer) come from `core/src/main/resources/fit/fitparse_enums.json`, generated on the PC
@@ -218,7 +233,9 @@ public remote.
 ./gradlew lint
 ```
 
-Real test classes so far: `:core` `FitParityTest` (45 FIT fixtures vs the PC), `FitCorpusTest` (every FIT file in
-`seed/imports`), `PolylineTest`; `:data` androidTest `BlobLimitTest` (`:data:connectedDebugAndroidTest`, needs the
-emulator). Regenerate the fixtures on the PC with
+Real test classes so far: `:core` `ImportParityTest` (all 77 FIT/GPX/TCX fixtures vs the PC: summary, streams, laps,
+routes), `ImportCorpusTest` (every file in `seed/imports` through the pipeline; a measurement that prints counts and
+failures), `PolylineTest`, `UnitsTest` (formatting, sports, stream codec, chart series); `:data` androidTest
+`ImportFlowTest` (import, duplicate, delete, failure against a real Room database) and `BlobLimitTest`
+(`:data:connectedDebugAndroidTest`, needs the phone or emulator). Regenerate the fixtures on the PC with
 `venv\Scripts\python.exe -m tools.export_golden --out <FitnessTrackerAndroid>\seed\golden --full`.

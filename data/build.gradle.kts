@@ -22,6 +22,8 @@ dependencies {
     api(project(":core"))
     api(libs.room.runtime)
     api(libs.room.ktx)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     ksp(libs.room.compiler)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

@@ -162,8 +162,8 @@
     <tr><td>B</td><td>History seed staged for the phone</td><td><span class="tag done">done</span></td><td>3,265 raw files + CSV + PC-side data in <code>seed/</code></td></tr>
     <tr><td>C</td><td>Golden-fixture exporter (PC side)</td><td><span class="tag done">done</span></td><td>77 inputs, per-file + mini-history + full-history oracle, constants</td></tr>
     <tr><td>0</td><td>Spikes: FIT SDK on real files, Vico, MapLibre, Room; scaffold modules</td><td><span class="tag done">done</span></td><td>All go; streams become files, duration axis is ordinal</td></tr>
-    <tr><td>1</td><td>Import and browse, with the theme system (Strava, iOS, Unix themes)</td><td><span class="tag active">next</span></td><td>Parse-level parity; list and detail correct; themes switch live</td></tr>
-    <tr><td>2</td><td>Core analytics (resampling, moving time, load, curves)</td><td><span class="tag todo">planned</span></td><td>Layer 1 parity</td></tr>
+    <tr><td>1</td><td>Import and browse, with the theme system (Strava, iOS, Unix themes)</td><td><span class="tag done">done</span></td><td>Parse-level parity; list and detail correct; themes switch live</td></tr>
+    <tr><td>2</td><td>Core analytics (resampling, load, curves, charts)</td><td><span class="tag active">next</span></td><td>Layer 1 parity</td></tr>
     <tr><td>3</td><td>Bulk import and rebuild, backup/export</td><td><span class="tag todo">planned</span></td><td>All 3,265 files import unattended and match the PC</td></tr>
     <tr><td>4</td><td>Heatmap</td><td><span class="tag todo">planned</span></td><td>Smooth with all routes</td></tr>
     <tr><td>5</td><td>Log, zones, load safety, efficiency</td><td><span class="tag todo">planned</span></td><td>Layer 2 parity</td></tr>
@@ -383,6 +383,81 @@
   <p>The user asked for the app to look like Strava and to include a theme switcher with an iOS-style look and Unix-style themes.
      The design is in the "UI and themes" section above; it is built in phase 1 together with the import and list screens, so every screen is theme-aware from the start rather than retrofitted.</p>
 
+
+  <h3>Phase 1: import and browse, with the theme system <span class="entry-date">2026-10-18</span></h3>
+  <p>Goal: data in, then list and detail, with every screen theme-aware from the start. A Pixel 7 (Android 17, API 37) was connected over USB for this phase,
+     so everything below ran on the real device rather than the emulator.</p>
+  <p><strong>What was built.</strong>
+     <code>:core</code>: GPX and TCX importers (an <code>XmlPullParser</code> element tree, tags matched by local name), moving time and the
+     other helpers from the PC's <code>importers/common.py</code>, the FIT duration rule (device timer unless the track shows less movement),
+     sport normalisation and the optional run/walk guess, the import pipeline (<code>.gz</code>, hash of the decompressed bytes, archive naming),
+     route simplification (split at 250 m gaps, RDP at 5 m, encoded polyline), the gzipped stream file format, and display formatting with a units switch.
+     <code>:data</code>: Room schema keyed by <code>file_hash</code> (<code>activities</code>, <code>laps</code>, <code>routes</code>, <code>changes</code>),
+     a repository that archives the raw file, writes the streams file and inserts in one transaction, and an import runner that queues files off the main thread.
+     <code>:app</code>: a <code>FitnessTheme</code> token set with eight theme families (Strava and iOS style with light and dark variants, Terminal green, Amber CRT,
+     Solarized, Gruvbox, Nord, Dracula) mapped onto Material 3, themed components (card, section header, stat tile, segmented control, switch),
+     the activity feed (date-range and sport filters, route thumbnails drawn on a canvas, long-press multi-select, delete with a typed <code>DELETE</code> for bulk),
+     the detail screen (route map, stat tiles, heart-rate, pace and elevation charts whose scrubber moves a map marker, laps table),
+     Settings (theme, light/dark, units, run/walk guess, street map), import by file picker and by share from another app.</p>
+
+  <h3>Phase 1 results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Parse parity, FIT, GPX and TCX</td><td><span class="tag done">pass</span></td>
+        <td>All 77 fixtures (45 FIT, 13 GPX, 19 TCX): file hash, sport, start, <strong>duration (moving time)</strong>, distance, elevation, device, stream keys,
+            every stream's count/sum/min/max/first/last, every lap field, and the simplified route polylines match the PC exactly: 0 mismatches.</td></tr>
+    <tr><td>Whole history through the pipeline</td><td><span class="tag done">pass</span></td>
+        <td>3,265 files in <code>seed/imports</code>: 3,260 distinct activities, 5 byte-identical duplicates, <strong>0 failures</strong> (2,522 FIT, 316 GPX, 422 TCX), 42 s on the PC.</td></tr>
+    <tr><td>Import on the phone</td><td><span class="tag done">pass</span></td>
+        <td>99 real files (every 33rd of the archive) imported through the system file picker with live progress; feed, detail, laps and charts show correct values.</td></tr>
+    <tr><td>Duplicates, delete, failures</td><td><span class="tag done">pass</span></td>
+        <td>Instrumented tests on the Pixel: the same content (also gzipped) imports once; delete removes the row and streams file, keeps the raw file, leaves a tombstone, and the file can be imported again; bad files fail with a message and store nothing.</td></tr>
+    <tr><td>Share from another app</td><td><span class="tag done">pass</span></td>
+        <td><code>ACTION_SEND</code> reaches the import queue on a cold start and into a running app; an unreadable file is reported in the banner as a failure.</td></tr>
+    <tr><td>Themes switch live</td><td><span class="tag done">pass</span></td>
+        <td>Strava, iOS style and Terminal green checked on the device; structure changes (cards, grouped blocks, bordered monospace panels with prompt-style headers), not only colour.</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) Routes are derived at import and stored (the <code>routes</code> table) instead of waiting for phase 2, because the feed thumbnail and the detail map need them.
+     (2) The street map is off by default: routes are drawn on a plain themed background and the app makes no network request until the user switches it on; with it on, tile requests carry an identifying User-Agent (design log D5).
+     (3) Import runs in an application-scoped coroutine, one file at a time; WorkManager comes with the bulk import in phase 3. (4) Display preferences live in SharedPreferences, not the database.
+     (5) The sport of a file that records none stays <code>unknown</code> unless the user turns on the run/walk guess, as on the PC.
+     (6) Similar-run detection (same run from two apps) is still phase 3; phase 1 treats only identical content as a duplicate.</p>
+
+  <h3>Issues in phase 1</h3>
+  <div class="issue">
+    <h4>Issue E1: the app crashed on launch</h4>
+    <dl>
+      <dt>Symptom</dt><dd><code>NullPointerException</code> in the filter row on the first start on the phone.</dd>
+      <dt>Cause</dt><dd>The list of preset date ranges was a property of the sealed class's companion object. It was built while the subclasses were still initialising, so it held nulls.</dd>
+      <dt>Solution</dt><dd>Made it a function, called after everything is initialised. Found in the crash log with <code>adb logcat -b crash</code>.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue E2: the fixture's <code>sha256_raw</code> is the hash of the compressed file</h4>
+    <dl>
+      <dt>Symptom</dt><dd>64 hash mismatches in the first parity run, all for <code>.gz</code> files; every other field matched.</dd>
+      <dt>Cause</dt><dd>The PC's <code>file_hash</code> is of the decompressed bytes (so <code>x.fit</code> and <code>x.fit.gz</code> are one activity), but the fixture field records the file as archived.</dd>
+      <dt>Solution</dt><dd>The test compares the first 12 characters of the hash with the archive name's prefix (what the PC derives from its own <code>file_hash</code>), and the full hash for uncompressed files.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue E3: the picker's Downloads root does not list files pushed with adb</h4>
+    <dl>
+      <dt>Symptom</dt><dd>"No items" in the folder that <code>adb push</code> had filled.</dd>
+      <dt>Cause</dt><dd>That root is backed by the media index, which does not know files that were never scanned.</dd>
+      <dt>Solution</dt><dd>Browse through the "Pixel 7" storage root instead. Noted for the phase 3 seed transfer.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue E4: tooling traps</h4>
+    <dl>
+      <dt>Symptom</dt><dd>One Gradle run failed in the Kotlin incremental cache (<code>dirty-sources.txt</code>); Git Bash turned <code>/sdcard/...</code> into a Windows path and could not see <code>/tmp</code> for the Windows <code>adb</code>; a test method written as <code>= runBlocking { ... }</code> was rejected by JUnit because it did not return void.</dd>
+      <dt>Solution</dt><dd>Delete <code>core/build/kotlin</code> and rerun; use <code>MSYS_NO_PATHCONV=1</code> and Windows paths for adb; write <code>runBlocking&lt;Unit&gt;</code>.</dd>
+    </dl>
+  </div>
+  <p><strong>Phase 1 is complete.</strong> Known gaps carried forward: elevation for the Amazfit runs is empty until the optional Strava CSV and terrain features (phase 7);
+     the iOS theme's feed still uses separate cards, so its grouped-list structure shows most in Settings; labels are English only.</p>
+
   <!-- LOG-ENTRIES-END -->
 </section>
 
@@ -391,7 +466,7 @@
   <table>
     <tr><th>ID</th><th>Title</th><th>Status</th></tr>
     <tr><td>A1</td><td>Android guide drifted from the PC app</td><td><span class="tag done">fixed</span></td></tr>
-    <tr><td>B1</td><td>No phone connected for the seed transfer</td><td><span class="tag" style="color:var(--bad)">open</span></td></tr>
+    <tr><td>B1</td><td>No phone connected for the seed transfer</td><td><span class="tag done">phone connected 2026-10-18; seed push in phase 3</span></td></tr>
     <tr><td>C1</td><td>Edge cases cut off by the file cap</td><td><span class="tag done">fixed</span></td></tr>
     <tr><td>C2</td><td>No real cycling-with-power example</td><td><span class="tag done">fixed (synthetic)</span></td></tr>
     <tr><td>C3</td><td>Shell and edit tooling quirks</td><td><span class="tag done">worked around</span></td></tr>
@@ -402,11 +477,15 @@
     <tr><td>D2</td><td>First charts drew only 10 s; NaN plotted as 0</td><td><span class="tag done">fixed</span></td></tr>
     <tr><td>D3</td><td>Vico 3 API differences</td><td><span class="tag done">fixed</span></td></tr>
     <tr><td>D4</td><td>Heatmap data took 24 s on the main thread</td><td><span class="tag done">fixed (1.1 s)</span></td></tr>
-    <tr><td>D5</td><td>Tile prefetching vs OSM policy</td><td><span class="tag done">off; UA in phase 4</span></td></tr>
+    <tr><td>D5</td><td>Tile prefetching vs OSM policy</td><td><span class="tag done">off; User-Agent sent (verify on the wire in phase 4)</span></td></tr>
     <tr><td>D6</td><td>Emulator unresponsive, then disk full</td><td><span class="tag done">fixed; disk still low</span></td></tr>
     <tr><td>D7</td><td>Emulator and Gradle tooling traps</td><td><span class="tag done">worked around</span></td></tr>
-    <tr><td>D8</td><td>Pace chart needs outlier clipping</td><td><span class="tag active">phase 1</span></td></tr>
+    <tr><td>D8</td><td>Pace chart needs outlier clipping</td><td><span class="tag done">fixed (2nd to 98th percentile)</span></td></tr>
     <tr><td>D9</td><td>Slow first start on a cold emulator</td><td><span class="tag active">judge on device</span></td></tr>
+    <tr><td>E1</td><td>App crashed on launch (companion init order)</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>E2</td><td>Fixture <code>sha256_raw</code> is the compressed hash</td><td><span class="tag done">test adjusted</span></td></tr>
+    <tr><td>E3</td><td>Picker Downloads root hides adb-pushed files</td><td><span class="tag done">use the storage root</span></td></tr>
+    <tr><td>E4</td><td>Tooling traps (Gradle cache, path mangling, JUnit void)</td><td><span class="tag done">worked around</span></td></tr>
   </table>
 </section>
 
@@ -423,6 +502,8 @@
     <tr><td>2026-10-17</td><td>FIT enum names come from fitparse's tables, not the SDK's</td><td>Stored strings must equal the PC's for parity and later sync.</td></tr>
     <tr><td>2026-10-17</td><td>UI: Strava-like, with a theme system (Strava, iOS style, Unix themes) built in phase 1</td><td>User request; theming must be structural (tokens, shapes, layout style), so it cannot be retrofitted.</td></tr>
     <tr><td>2026-10-17</td><td>Golden fixtures kept in the gitignored <code>seed/</code> folder, not in test resources</td><td>Inputs are personal data; copy selected ones into test resources only with explicit approval.</td></tr>
+    <tr><td>2026-10-18</td><td>Routes are derived at import (not in phase 2); street map tiles are opt-in, off by default</td><td>The feed and detail map need routes now; with tiles off the app makes no network requests.</td></tr>
+    <tr><td>2026-10-18</td><td>Display preferences in SharedPreferences; training settings stay in the database (phase 2)</td><td>Prefs are per device and never sync; thresholds are data.</td></tr>
   </table>
 </section>
 
