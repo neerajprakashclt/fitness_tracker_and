@@ -35,6 +35,9 @@ data class MetricsEntity(
     @ColumnInfo(name = "speed_hist") val speedHist: String? = null,
     /** JSON array of candidate interval reps (running only). */
     val reps: String? = null,
+    val efficiency: Double? = null,
+    @ColumnInfo(name = "efficiency_basis") val efficiencyBasis: String? = null,
+    val decoupling: Double? = null,
 )
 
 /** Best efforts of one activity as JSON: `{"power": {"5": w}, "speed": {"60": m/s}, "distance_time": {"5000.0": s}}`. */
@@ -100,16 +103,37 @@ data class PosterRow(
     @ColumnInfo(name = "speed_hist") val speedHist: String?,
     @ColumnInfo(name = "hr_hist") val hrHist: String?,
     val reps: String?,
+    val efficiency: Double?,
+)
+
+data class EfficiencyRow(
+    @ColumnInfo(name = "file_hash") val fileHash: String,
+    val sport: String,
+    @ColumnInfo(name = "start_time") val startTime: String,
+    val duration: Double?,
+    val distance: Double?,
+    val efficiency: Double,
+    @ColumnInfo(name = "efficiency_basis") val basis: String?,
+    val decoupling: Double?,
 )
 
 @Dao
 interface AnalyticsDao {
     @Query(
-        """SELECT a.file_hash, a.start_time, a.distance, a.duration, m.load, r.polyline, m.speed_hist, m.hr_hist, m.reps FROM activities a
+        """SELECT a.file_hash, a.start_time, a.distance, a.duration, m.load, r.polyline, m.speed_hist, m.hr_hist, m.reps, m.efficiency FROM activities a
            LEFT JOIN activity_metrics m ON m.file_hash = a.file_hash LEFT JOIN routes r ON r.file_hash = a.file_hash
            WHERE a.sport = 'running' ORDER BY a.start_time"""
     )
     suspend fun posterRows(): List<PosterRow>
+
+    @Query(
+        """SELECT a.file_hash, a.sport, a.start_time, a.duration, a.distance, m.efficiency, m.efficiency_basis, m.decoupling
+           FROM activities a JOIN activity_metrics m ON m.file_hash = a.file_hash WHERE m.efficiency IS NOT NULL ORDER BY a.start_time"""
+    )
+    suspend fun efficiencyRows(): List<EfficiencyRow>
+
+    @Query("SELECT * FROM activity_metrics WHERE file_hash = :hash")
+    suspend fun metrics(hash: String): MetricsEntity?
 
     /** Activities with no current metrics or bests. */
     @Query(

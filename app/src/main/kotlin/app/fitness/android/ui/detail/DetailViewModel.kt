@@ -6,6 +6,7 @@ import app.fitness.core.ChartSeries
 import app.fitness.core.Series
 import app.fitness.data.ActivityDetail
 import app.fitness.data.ActivityRepository
+import app.fitness.data.ActivityInsight
 import app.fitness.data.AnalyticsRepository
 import app.fitness.data.LoadInfo
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +31,7 @@ class StreamDigest(
 sealed interface DetailState {
     data object Loading : DetailState
     data object NotFound : DetailState
-    class Ready(val detail: ActivityDetail, val streams: StreamDigest?, val load: LoadInfo? = null) : DetailState
+    class Ready(val detail: ActivityDetail, val streams: StreamDigest?, val load: LoadInfo? = null, val insight: ActivityInsight? = null) : DetailState
 }
 
 class DetailViewModel(private val repo: ActivityRepository, private val analytics: AnalyticsRepository, private val hash: String) : ViewModel() {
@@ -45,6 +46,9 @@ class DetailViewModel(private val repo: ActivityRepository, private val analytic
             _state.value = DetailState.Ready(detail, null, load)    // show tiles, route and laps while the charts load
             val digest = withContext(Dispatchers.Default) { repo.streams(hash)?.let(::digest) }
             _state.value = DetailState.Ready(detail, digest, load)
+            // Run type and time in zones need the whole history (critical speed as of the day), so they arrive last.
+            val insight = try { analytics.insight(hash) } catch (_: Exception) { null }
+            _state.value = DetailState.Ready(detail, digest, load, insight)
         }
     }
 

@@ -222,7 +222,7 @@ interface ActivityDao {
         ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class,
         MetricsEntity::class, BestsEntity::class, DailyLoadEntity::class, SettingEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class FitnessDatabase : RoomDatabase() {
@@ -271,8 +271,20 @@ abstract class FitnessDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 5 added efficiency and decoupling to the metrics. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `activity_metrics` ADD COLUMN `efficiency` REAL")
+                db.execSQL("ALTER TABLE `activity_metrics` ADD COLUMN `efficiency_basis` TEXT")
+                db.execSQL("ALTER TABLE `activity_metrics` ADD COLUMN `decoupling` REAL")
+                // Rebuilt from the stream files on the next start.
+                db.execSQL("DELETE FROM `activity_metrics`")
+                db.execSQL("DELETE FROM `activity_bests`")
+            }
+        }
+
         fun create(context: Context): FitnessDatabase =
             Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
     }
 }

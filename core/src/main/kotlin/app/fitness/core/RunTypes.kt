@@ -8,7 +8,13 @@ enum class RunType(val label: String) {
 }
 
 /** What a run's type was judged on: [basis] is "profile", "distance", "pace", "hr" or null. */
-class RunClass(val type: RunType, val basis: String?, val easyShare: Double? = null, val hardShare: Double? = null)
+class RunClass(
+    val type: RunType, val basis: String?, val easyShare: Double? = null, val hardShare: Double? = null,
+    /** Intervals: how many reps, their median length in seconds and mean speed. */
+    val reps: Int? = null, val repMedianSeconds: Double? = null, val repSpeed: Double? = null,
+    /** Long: the run's own distance and time, and the usual distance of the surrounding months (null when unknown). */
+    val distance: Double? = null, val duration: Double? = null, val typicalDistance: Double? = null,
+)
 
 /** What the classifier needs to know about one run. */
 class RunInput(
@@ -75,12 +81,16 @@ object RunTypes {
     }
 
     fun classify(run: RunInput, cs: Double?, maxHr: Double?, typicalDistance: Double?): RunClass {
-        if (intervalReps(run.reps, cs).isNotEmpty()) return RunClass(RunType.INTERVALS, "profile")
+        val hardReps = intervalReps(run.reps, cs)
+        if (hardReps.isNotEmpty()) {
+            return RunClass(RunType.INTERVALS, "profile", reps = hardReps.size, repMedianSeconds = Stats.median(hardReps.map { it.duration.toDouble() }),
+                repSpeed = hardReps.map { it.speed }.average())
+        }
 
         val distance = run.distance ?: 0.0
         val duration = run.duration ?: 0.0
         val relative = typicalDistance != null && typicalDistance != 0.0 && distance >= maxOf(LONG_RATIO * typicalDistance, LONG_MIN_DISTANCE)
-        if (relative || duration >= LONG_ABSOLUTE_SECONDS || distance >= LONG_ABSOLUTE_DISTANCE) return RunClass(RunType.LONG, "distance")
+        if (relative || duration >= LONG_ABSOLUTE_SECONDS || distance >= LONG_ABSOLUTE_DISTANCE) return RunClass(RunType.LONG, "distance", distance = distance, duration = duration, typicalDistance = typicalDistance)
 
         val s = shares(run, cs, maxHr) ?: return RunClass(RunType.UNKNOWN, null)
         val type = when {

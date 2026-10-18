@@ -151,6 +151,15 @@ class BulkFlowTest {
     }
 
     @Test
+    fun upgradingToVersionFiveAddsEfficiency() {
+        val name = "migration-test-5"
+        migrations.createDatabase(name, 4).close()
+        val db = migrations.runMigrationsAndValidate(name, 5, true, FitnessDatabase.MIGRATION_4_5)
+        db.query("SELECT efficiency, efficiency_basis, decoupling FROM activity_metrics").use { assertEquals(0, it.count) }
+        db.close()
+    }
+
+    @Test
     fun analyticsAreComputedFromTheStreamsAndFollowTheThresholds() = runBlocking<Unit> {
         val analytics = AnalyticsRepository(db, repo)
         val hash = (repo.import("run.gpx", gpx(points = 60)) as ImportOutcome.Imported).fileHash

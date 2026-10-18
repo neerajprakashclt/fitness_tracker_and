@@ -598,7 +598,32 @@
   </table>
   <p><strong>Decisions.</strong> (1) Efficiency and aerobic decoupling are still not ported: the poster does not use them. (2) The gazetteer is a 2 MB gzipped text resource in <code>:core</code> instead of a database, searched by a one-degree grid with the same nearest-by-degrees rule as the PC's k-d tree.
      (3) Cities are worked out when the poster opens, not stored (about a second), so there is nothing more to migrate.</p>
-  <p>Next: the screens for what is now computed but not shown (run type on each activity, critical speed and pace zones, efficiency, route progress), or the heatmap (phase 4).</p>
+
+  <h3>Running screens <span class="entry-date">2026-10-18</span></h3>
+  <p>The analytics ported for the poster now have screens. Efficiency, race predictions (Riegel and VDOT), the critical-speed zones, trend and predictions, the weekly run-type mix and the route report (runs, best, trend) were ported first and checked against the PC.
+     <strong>Training tab</strong>, now four parts: Fitness, Curves, <em>Running</em> (critical pace with D&prime;, the five pace zones, mile and 5K from the model, race predictions and VO2max, critical pace by month, a stacked bar of weekly distance by run type for 26 weeks, efficiency over time with its trend and typical decoupling) and <em>Routes</em> (a card per repeated route with its shape, best, usual pace and trend; tap to list the runs, tap a run to open it).
+     <strong>Activity screen</strong>: run type with the reason, efficiency and decoupling tiles, time in pace zones (running) and in heart-rate zones.
+     Database version 5 keeps efficiency, its basis and decoupling with the metrics, which are rebuilt once after the update.</p>
+  <h3>Running screens results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Efficiency, 77 files and every sport's series</td><td><span class="tag done">pass</span></td><td>Efficiency, basis and decoupling per file equal the PC's; the per-sport series (points, basis, trend per month) match.</td></tr>
+    <tr><td>Predictions, VDOT, critical-speed zones, monthly trend, mile and 5K</td><td><span class="tag done">pass</span></td><td>Equal the PC's fixture, including the 14-year trend.</td></tr>
+    <tr><td>Weekly mix and route report</td><td><span class="tag done">pass</span></td><td>All 26 weeks; the 50 largest routes: runs, best, median speed, speed and heart-rate trends, average heart rate and efficiency per run.</td></tr>
+    <tr><td>Run type details</td><td><span class="tag done">pass</span></td><td>Reps, median length and speed for intervals; distance, time and usual distance for long runs.</td></tr>
+    <tr><td>On the phone</td><td><span class="tag done">pass</span></td><td>Critical pace 7:28 /mi (the PC's 3.595 m/s), run types spread as on the PC, route cards and the activity zones checked; upgrade 4 to 5 tested.</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) Runs recorded at the very same moment have no defined order, which changes the "usual distance" context of one of them and the order of equal-count cities; the tests treat days with such twins as order-dependent. (2) The efficiency chart draws a moving average, since single runs vary by a quarter either way; the stored points and the trend are the raw ones.
+     (3) One snapshot of the running history is built when first needed and dropped when the metrics change, so the screens and the poster share the work.</p>
+  <div class="issue">
+    <h4>Issue G4: the first look at the Running tab showed wrong numbers</h4>
+    <dl>
+      <dt>Symptom</dt><dd>Critical pace 9:18 /mi and most recent runs "Unlabelled", against 7:28 and typed runs on the PC.</dd>
+      <dt>Cause</dt><dd>The screenshot was taken while the one-off rebuild of the metrics after the database upgrade was still running, so most runs had no profile yet. The screens read what was stored at the moment.</dd>
+      <dt>Solution</dt><dd>None needed in the code: after the job finished the numbers matched. My wait loop ended too early. Worth knowing: for a couple of minutes after a metrics upgrade the running screens show partial results; they refresh when the job ends.</dd>
+    </dl>
+  </div>
+  <p>Next: phase 4 (heatmap) when wanted, or the other PC analytics (heart-rate zones by week, load safety, volume and year in review, splits, cadence, goals, the training log).</p>
 
   <!-- LOG-ENTRIES-END -->
 </section>
@@ -635,6 +660,7 @@
     <tr><td>G1</td><td>No <code>rint</code> in Kotlin</td><td><span class="tag done">use round()</span></td></tr>
     <tr><td>G2</td><td>Pace curve shaded on the wrong side</td><td><span class="tag done">fixed</span></td></tr>
     <tr><td>G3</td><td>Long activities crashed the detail charts</td><td><span class="tag done">fixed</span></td></tr>
+    <tr><td>G4</td><td>Running tab showed partial numbers during the metrics rebuild</td><td><span class="tag done">expected; refreshes when done</span></td></tr>
   </table>
 </section>
 

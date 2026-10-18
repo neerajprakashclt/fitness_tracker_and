@@ -31,13 +31,16 @@ data request is answered from `Poster.data` in `:core`, every other request is r
 `AndroidPoster` bridge into Pictures/Fitness Tracker). The analytics it needs are ported with parity tests: run profile (speed
 histogram, interval reps), critical speed, HR zones, run types, route matching, and offline places (bundled GeoNames
 cities1000, CC BY 4.0, `core/src/main/resources/places/`), so every layout and colour scheme works. Icon: adaptive lightning bolt on orange
-(`res/drawable/ic_launcher_*`, with a monochrome layer for themed icons). Opened from the Training tab and from Settings > Extras. Next: phase 4 (heatmap), which the user does not need for
-now, or the screens for what is now computed but not shown (run types per activity, critical speed and pace zones,
-efficiency, route progress). Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
+(`res/drawable/ic_launcher_*`, with a monochrome layer for themed icons). Opened from the Training tab and from Settings > Extras. The Training tab has four parts: Fitness, Curves, Running
+(critical speed and pace zones, race predictions and VO2max, the weekly run-type mix, efficiency) and Routes (repeated
+routes with their runs and trends); the activity screen shows run type, efficiency, decoupling and time in pace and
+heart-rate zones. `AnalyticsRepository` builds one cached snapshot of the running history for all of these and the
+poster. Next: phase 4 (heatmap), which the user does not need for now, or the other PC analytics (HR-zone weeks, load
+safety, volume, splits, cadence, goals, training log). Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
 terrain elevation, phase 7). Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures and oracles made from the PC app
 are in `seed/` (`golden/`, `pc-activities.json`; gitignored).
 
-Code map: `:core` `Resample`, `TrainingLoad` (metrics, thresholds, load, daily series), `Curves` (bests, aggregation), `RunProfile`, `CriticalSpeed` (+ `Zones`), `RunTypes`, `RouteMatch`, `Places`, `Poster` (payload) and `Volume` (records, streaks); `:data` `AnalyticsRepository` (versioned metrics/bests/daily_load tables, settings; refreshed by a background job at start-up and after imports, deletes and threshold edits); `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
+Code map: `:core` `Resample`, `TrainingLoad` (metrics, thresholds, load, daily series), `Curves` (bests, aggregation), `RunProfile`, `CriticalSpeed` (+ `Zones`), `RunTypes`, `Efficiency`, `RunningReports` (predictions, critical-speed trend and zones, weekly mix, route progress), `RouteMatch`, `Places`, `Poster` (payload) and `Volume` (records, streaks); `:data` `AnalyticsRepository` (versioned metrics/bests/daily_load tables, settings; refreshed by a background job at start-up and after imports, deletes and threshold edits); `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
 `Similar` (duplicate / same run / import, pure and shared with the tests), `Common` (moving time and the other PC helpers),
 `Routes`, `StreamCodec`, `Format`; `:data` `FitnessDatabase` (version 2, with a migration), `ActivityRepository`
 (import, rebuild, derived data), `FolderImporter`, `BackupManager`, `ImportRunner` (progress state); `:app`

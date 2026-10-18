@@ -44,7 +44,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 
-private enum class Tab(val label: String) { FITNESS("Fitness"), CURVES("Curves & records") }
+private enum class Tab(val label: String) { FITNESS("Fitness"), CURVES("Curves"), RUNNING("Running"), ROUTES("Routes") }
 
 @Composable
 fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onPoster: () -> Unit, onOpen: (String) -> Unit) {
@@ -67,6 +67,8 @@ fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onPoster: () -> Unit, 
         when (tab) {
             Tab.FITNESS -> FitnessTab(vm)
             Tab.CURVES -> CurvesTab(vm, fmt, onOpen)
+            Tab.RUNNING -> RunningTab(vm, fmt)
+            Tab.ROUTES -> RoutesTab(vm, fmt, onOpen)
         }
         Box(Modifier.padding(bottom = 24.dp))
     }

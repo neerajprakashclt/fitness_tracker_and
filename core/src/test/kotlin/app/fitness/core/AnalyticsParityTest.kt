@@ -59,6 +59,8 @@ class AnalyticsParityTest {
             bad.check("$name hr_hist", histOf(want["hr_hist"].str()) == m.hrHist) { "differs" }
 
             bad.check("$name speed_hist", histOf(want["speed_hist"].str()) == m.speedHist) { "differs" }
+            bad.check("$name efficiency", close(want["efficiency"].num(), m.efficiency, 1e-9, 1e-9) && want["efficiency_basis"].str() == m.efficiencyBasis &&
+                close(want["decoupling"].num(), m.decoupling, 1e-9, 1e-9)) { "pc=${want["efficiency"].num()}/${want["decoupling"].num()} kotlin=${m.efficiency}/${m.decoupling}" }
             val wantReps = want["reps"].str()?.let { (Json.parseToJsonElement(it) as kotlinx.serialization.json.JsonArray).map { r -> r.jsonObject } } ?: emptyList()
             val gotReps = m.reps ?: emptyList()
             bad.check("$name reps", wantReps.size == gotReps.size && wantReps.zip(gotReps).all { (w, g) ->
@@ -193,11 +195,18 @@ class AnalyticsParityTest {
             .sortedWith(compareBy({ it["date"].str() }, { it["distance"].num() }, { it["duration"].num() }))
         val gotSorted = classified.withIndex().sortedWith(compareBy({ inputs[it.index].date }, { inputs[it.index].distance }, { inputs[it.index].duration })).map { it.value }
         bad.check("run type count", wantTypes.size == classified.size) { "pc=${wantTypes.size} kotlin=${classified.size}" }
+        // Runs on the same day can be recorded at the very same moment, and then which one the other sees as context is arbitrary.
+        val twins = wantTypes.groupingBy { it["date"].str() }.eachCount()
         val typeCounts = sortedMapOf<String, Int>()
         for ((i, w) in wantTypes.withIndex()) {
             val g = gotSorted.getOrNull(i)?.first ?: break
             typeCounts.merge(g.type.label, 1, Int::plus)
             val d = w["detail"]!!.jsonObject
+            val tied = twins.getValue(w["date"].str()) > 1
+            if (g.type == RunType.INTERVALS && !tied) bad.check("run ${w["date"].str()} #$i reps", d["reps"].num()!!.toInt() == g.reps && close(d["median_seconds"].num(), g.repMedianSeconds) &&
+                close(d["speed"].num(), g.repSpeed, 1e-9, 1e-9)) { "pc=$d kotlin=${g.reps}/${g.repMedianSeconds}/${g.repSpeed}" }
+            if (g.type == RunType.LONG && !tied) bad.check("run ${w["date"].str()} #$i long", close(d["distance"].num(), g.distance) && close(d["duration"].num(), g.duration) &&
+                close(d["typical_distance"].num(), g.typicalDistance, 1e-9, 1e-6)) { "pc=$d kotlin=${g.distance}/${g.duration}/${g.typicalDistance}" }
             bad.check("run ${w["date"].str()} #$i type", w["type"].str() == g.type.label && w["basis"].str() == g.basis &&
                 close(d["easy_share"].num(), g.easyShare, 1e-9, 1e-9) && close(d["hard_share"].num(), g.hardShare, 1e-9, 1e-9)) {
                 "pc=${w["type"].str()}/${w["basis"].str()}/$d kotlin=${g.type.label}/${g.basis}/${g.easyShare}" }
@@ -253,6 +262,73 @@ class AnalyticsParityTest {
                     (w["places"] as kotlinx.serialization.json.JsonArray).map { it.str() }.toSet() == g.places.toSet()) { "pc=${w["name"].str()}/$years kotlin=${g.name}/${g.runsByYear}" }
             }
             println("places: $compared routes compared, ${areas.size} areas (${areas.take(3).map { it.name }})")
+        }
+
+        // The running screens: efficiency, predictions, critical-speed analysis, weekly mix, route progress.
+        val effRows = rows.values.filter { it.metrics.efficiency != null }.sortedBy { it.start }.map {
+            Efficiency.Row(it.hash, it.sport, it.date, it.duration, it.distance, it.metrics.efficiency!!, it.metrics.efficiencyBasis, it.metrics.decoupling) }
+        val wantEff = want.obj("efficiency")
+        for ((sport, w) in wantEff) {
+            val wj = w.jsonObject
+            val g0 = Efficiency.series(effRows, sport)
+            val g = EfficiencySeries(g0.sports, g0.sport, g0.basis, g0.points.sortedWith(compareBy({ it.date }, { Math.rint(it.efficiency * 1e6) })), g0.trendPctPerMonth)
+            val wp = (wj["points"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+                .sortedWith(compareBy({ it["date"].str() }, { Math.rint(it["efficiency"].num()!! * 1e6) }))
+            bad.check("efficiency $sport shape", wj["basis"].str() == g.basis && wp.size == g.points.size && wj["sports"]!!.let { (it as kotlinx.serialization.json.JsonArray).map { e -> e.str() }.toSet() } == g.sports.toSet()) {
+                "pc=${wj["basis"].str()}/${wp.size} kotlin=${g.basis}/${g.points.size}" }
+            bad.check("efficiency $sport trend", close(wj["trend_pct_per_month"].num(), g.trendPctPerMonth, 1e-7, 1e-9)) { "pc=${wj["trend_pct_per_month"].num()} kotlin=${g.trendPctPerMonth}" }
+            for ((a, b) in wp.zip(g.points)) bad.check("efficiency $sport ${a["date"].str()}", a["date"].str() == b.date.toString() && close(a["efficiency"].num(), b.efficiency, 1e-9, 1e-9) &&
+                close(a["decoupling"].num(), b.decoupling, 1e-9, 1e-9)) { "pc=${a["efficiency"].num()} kotlin=${b.efficiency}" }
+        }
+
+        val since = today.minusDays(RacePredictions.WINDOW_DAYS.toLong())
+        val recent = Curves.aggregate(runningRows.map { Curves.Entry(it.hash, it.date, it.bests) }, since).getValue(Curves.Metric.DISTANCE_TIME)
+        val pred = RacePredictions.predict(recent)
+        val wantPred = want.obj("predictions")
+        bad.check("predictions available", wantPred["available"].toString() == (pred != null).toString()) { "pc=${wantPred["available"]} kotlin=${pred != null}" }
+        if (pred != null) {
+            val wp = (wantPred["predictions"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            for ((a, b) in wp.zip(pred.predictions)) bad.check("prediction ${b.name}", close(a["seconds"].num(), b.seconds, 1e-9, 1e-9) && a["exact"].toString() == b.exact.toString() &&
+                close(a.obj("from_effort")["seconds"].num(), b.from.value) && a.obj("from_effort")["date"].str() == b.from.date.toString()) { "pc=${a["seconds"].num()} kotlin=${b.seconds}" }
+            val vo = wantPred["vo2max"]!!.jsonObject
+            bad.check("vdot", close(vo["vdot"].num(), pred.vdot, 1e-9, 1e-9) && vo.obj("from_effort")["date"].str() == pred.vdotFrom?.date.toString()) { "pc=${vo["vdot"].num()} kotlin=${pred.vdot}" }
+        }
+
+        val wantCsA = want.obj("critical_speed")
+        if (cs != null) {
+            val wz = (wantCsA["zones"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            for ((a, b) in wz.zip(CriticalSpeedReport.zoneBounds(cs.cs))) bad.check("cs zone ${b.name}", a["name"].str() == b.name && close(a["low"].num(), b.low, 1e-9, 1e-9) && close(a["high"].num(), b.high, 1e-9, 1e-9)) { "differs" }
+            val wt = (wantCsA["trend"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            val gt = CriticalSpeedReport.monthlyTrend(efforts, today)
+            bad.check("cs trend length", wt.size == gt.size) { "pc=${wt.size} kotlin=${gt.size}" }
+            for ((a, b) in wt.zip(gt)) bad.check("cs trend ${a["date"].str()}", a["date"].str() == b.date.toString() && close(a["cs"].num(), b.cs, 1e-9, 1e-9) && close(a["d_prime"].num(), b.dPrime, 1e-9, 1e-9)) { "pc=${a["cs"].num()} kotlin=${b.cs}" }
+            val wpr = (wantCsA["predictions"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            val gpr = CriticalSpeedReport.predict(cs.cs, cs.dPrime)
+            bad.check("cs predictions", wpr.size == gpr.size && wpr.zip(gpr).all { (a, b) -> a["name"].str() == b.name && close(a["seconds"].num(), b.seconds, 1e-9, 1e-9) }) { "differs" }
+        }
+
+        val mix = RunTypeMix.weekly(classified.mapIndexed { i, c -> Triple(inputs[i].date, inputs[i].distance, c.first.type) }, today)
+        val wantMix = (want.obj("run_types_weekly")["weeks"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+        bad.check("mix weeks", wantMix.size == mix.size) { "pc=${wantMix.size} kotlin=${mix.size}" }
+        for ((a, b) in wantMix.zip(mix)) {
+            val wc = a.obj("counts").entries.associate { it.key to it.value.num()!!.toInt() }
+            val wk = a.obj("km").entries.associate { it.key to it.value.num()!! }
+            bad.check("mix ${a["week_start"].str()}", a["week_start"].str() == b.weekStart.toString() && wc == b.counts.entries.associate { it.key.label to it.value } &&
+                wk.keys == b.km.keys.map { it.label }.toSet() && wk.all { (k, v) -> close(v, b.km.entries.first { e -> e.key.label == k }.value, 1e-9, 1e-9) }) { "pc=$wc kotlin=${b.counts}" }
+        }
+
+        val progress = RouteProgress.routes(withRoute.map {
+            RouteProgress.Input(it.hash, it.date, it.distance, it.duration, it.metrics.hrHist, it.metrics.efficiency, it.polylines) }, 2, 50)
+        for ((i, a) in wantList.withIndex()) {
+            val b = progress.getOrNull(i) ?: break
+            val ar = (a["runs"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+                .sortedWith(compareBy({ it["date"].str() }, { Math.rint((it["efficiency"].num() ?: 0.0) * 1e6) }, { Math.rint((it["avg_hr"].num() ?: 0.0) * 1e6) }))
+            val br = b.runs.sortedWith(compareBy({ it.date.toString() }, { Math.rint((it.efficiency ?: 0.0) * 1e6) }, { Math.rint((it.avgHr ?: 0.0) * 1e6) }))
+            bad.check("route report #$i", a["runs_count"].num()!!.toInt() == b.runs.size && close(a["distance"].num(), b.distance, 1e-9, 1e-6) && close(a["median_speed"].num(), b.medianSpeed, 1e-9, 1e-9) &&
+                a.obj("best")["date"].str() == b.best?.date.toString() &&
+                close(a.obj("trend")["speed_pct_per_year"].num(), b.trend.speedPctPerYear, 1e-6, 1e-9) && close(a.obj("trend")["hr_bpm_per_year"].num(), b.trend.hrBpmPerYear, 1e-6, 1e-9) &&
+                ar.zip(br).all { (x, y) -> x["date"].str() == y.date.toString() && close(x["avg_hr"].num(), y.avgHr, 1e-9, 1e-9) && close(x["efficiency"].num(), y.efficiency, 1e-9, 1e-9) }) {
+                "pc=${a["runs_count"].num()} ${a.obj("trend")} kotlin=${b.runs.size} ${b.trend.speedPctPerYear}/${b.trend.hrBpmPerYear}" }
         }
 
         // Personal-best timeline and weekly streak (the poster's inputs).

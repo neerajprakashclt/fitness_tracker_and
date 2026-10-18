@@ -20,6 +20,9 @@ class StreamMetrics(
     val speedHist: Map<Int, Double>? = null,
     /** Candidate interval reps; only worked out for running. */
     val reps: List<Rep>? = null,
+    val efficiency: Double? = null,
+    val efficiencyBasis: String? = null,
+    val decoupling: Double? = null,
 )
 
 enum class LoadMethod(val label: String) { POWER("power"), HR("hr"), DURATION("duration") }
@@ -89,7 +92,8 @@ object TrainingLoad {
             }
         }
         val reps = if (sport == "running") RunProfile.detectReps(time, streams["speed"]).takeIf { it.isNotEmpty() } else null
-        return StreamMetrics(np, powerSeconds, best20, hrMax, hist, RunProfile.speedHistogram(time, streams["speed"]), reps)
+        val eff = Efficiency.metrics(streams, sport in POWER_SPORTS)
+        return StreamMetrics(np, powerSeconds, best20, hrMax, hist, RunProfile.speedHistogram(time, streams["speed"]), reps, eff.efficiency, eff.basis, eff.decoupling)
     }
 
     /** Means of every full window, like pandas `rolling(w).mean().dropna()`. */

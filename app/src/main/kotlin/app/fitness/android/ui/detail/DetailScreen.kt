@@ -42,6 +42,9 @@ import app.fitness.core.ChartSeries
 import app.fitness.core.Formatter
 import app.fitness.core.Series
 import app.fitness.data.ActivityDetail
+import app.fitness.data.ActivityInsight
+import app.fitness.android.ui.RunTypeStyle
+import app.fitness.android.ui.components.ZoneBars
 import app.fitness.data.LapItem
 import app.fitness.data.LoadInfo
 import kotlin.math.abs
@@ -61,14 +64,14 @@ fun DetailScreen(vm: DetailViewModel, fmt: Formatter, streetMap: Boolean, onBack
         when (val s = state) {
             DetailState.Loading -> Unit
             DetailState.NotFound -> Text("Activity not found", color = t.muted, modifier = Modifier.padding(24.dp))
-            is DetailState.Ready -> Body(s.detail, s.streams, s.load, fmt, streetMap)
+            is DetailState.Ready -> Body(s.detail, s.streams, s.load, s.insight, fmt, streetMap)
         }
     }
     if (confirmDelete) DeleteDialog(1, onConfirm = { confirmDelete = false; vm.delete(onBack) }, onDismiss = { confirmDelete = false })
 }
 
 @Composable
-private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, fmt: Formatter, streetMap: Boolean) {
+private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, insight: ActivityInsight?, fmt: Formatter, streetMap: Boolean) {
     val t = Fitness.theme
     val a = d.activity
     val handle = remember { RouteMapHandle() }
@@ -101,6 +104,9 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, fmt
                 streams?.maxHeartRate?.let { add("Max HR" to "%.0f bpm".format(it)) }
                 load?.normalizedPower?.let { add("Normalized power" to "%.0f W".format(it)) }
                 load?.let { add("Training load · ${loadMethodLabel(it.method)}" to "%.0f".format(it.load)) }
+                insight?.runType?.let { add("Run type" to RunTypeStyle.label(it.type)) }
+                insight?.efficiency?.let { add("Efficiency" to "%.2f".format(it)) }
+                insight?.decoupling?.let { add("Decoupling" to "%.1f%%".format(it)) }
             }
             rows.chunked(2).forEachIndexed { i, pair ->
                 if (i > 0) Box(Modifier.height(14.dp))
@@ -113,12 +119,46 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, fmt
 
         if (streams != null) ChartsCard(a.sport, streams, fmt, handle)
 
+        insight?.let { InsightCards(it, fmt) }
+
         if (d.laps.isNotEmpty()) {
             SectionHeader("Laps")
             LapsTable(d.laps, a.sport, fmt)
         }
 
         Text("Imported ${d.importedAt.take(10)}", color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 24.dp))
+    }
+}
+
+@Composable
+private fun InsightCards(i: ActivityInsight, fmt: Formatter) {
+    val t = Fitness.theme
+    i.runType?.let { c ->
+        ThemedCard {
+            Text(RunTypeStyle.label(c.type), color = RunTypeStyle.color(c.type), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(RunTypeStyle.why(c, fmt), color = t.muted, fontSize = 13.sp)
+        }
+    }
+    i.paceZones?.let { z ->
+        SectionHeader("Time in pace zones")
+        ThemedCard {
+            ZoneBars(z.names, z.seconds, { k ->
+                when (k) {
+                    0 -> "slower than ${fmt.paceBare(z.lows[1])}"
+                    z.names.lastIndex -> "faster than ${fmt.paceBare(z.lows[k])}"
+                    else -> "${fmt.paceBare(z.lows[k])} – ${fmt.paceBare(z.lows[k + 1])}"
+                }
+            })
+            Text("Zones are fractions of your critical pace on the day of the run.", color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+    i.hrZones?.let { z ->
+        SectionHeader("Time in heart-rate zones")
+        ThemedCard {
+            ZoneBars(z.names, z.seconds, { k ->
+                when (k) { 0 -> "below ${"%.0f".format(z.lows[1])}"; z.names.lastIndex -> "${"%.0f".format(z.lows[k])}+ bpm"; else -> "${"%.0f".format(z.lows[k])}–${"%.0f".format(z.lows[k + 1])} bpm" }
+            })
+        }
     }
 }
 
