@@ -160,6 +160,30 @@ class BulkFlowTest {
     }
 
     @Test
+    fun upgradingToVersionSixAddsGoals() {
+        val name = "migration-test-6"
+        migrations.createDatabase(name, 5).close()
+        val db = migrations.runMigrationsAndValidate(name, 6, true, FitnessDatabase.MIGRATION_5_6)
+        db.execSQL("INSERT INTO goals (id, sport, metric, period, target, created_at) VALUES ('g', NULL, 'distance', 'month', 1000.0, 'now')")
+        db.close()
+    }
+
+    @Test
+    fun goalsAreStoredLoggedAndProgressFollowsTheActivities() = runBlocking<Unit> {
+        val log = LogRepository(db, repo)
+        repo.import("run.gpx", gpx(points = 60))
+        log.addGoal("running", app.fitness.core.LogMetric.ACTIVITIES, app.fitness.core.Period.YEAR, 5.0)
+        val goals = log.goals().first()
+        assertEquals(1, goals.size)
+        assertEquals("running", goals[0].sport)
+        assertEquals(1, repo.dao().changes().count { it.entity == "goal" && it.op == "put" })
+        log.deleteGoal(goals[0].id)
+        assertTrue(log.goals().first().isEmpty())
+        assertEquals(1, repo.dao().changes().count { it.entity == "goal" && it.op == "delete" })
+        assertEquals(1, log.rows().first().size)
+    }
+
+    @Test
     fun analyticsAreComputedFromTheStreamsAndFollowTheThresholds() = runBlocking<Unit> {
         val analytics = AnalyticsRepository(db, repo)
         val hash = (repo.import("run.gpx", gpx(points = 60)) as ImportOutcome.Imported).fileHash

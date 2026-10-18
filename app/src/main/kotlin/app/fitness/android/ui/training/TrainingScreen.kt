@@ -44,10 +44,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 
-private enum class Tab(val label: String) { FITNESS("Fitness"), CURVES("Curves"), RUNNING("Running"), ROUTES("Routes") }
+private enum class Tab(val label: String) { FITNESS("Fitness"), ZONES("Zones"), CURVES("Curves"), RUNNING("Running"), ROUTES("Routes") }
 
 @Composable
-fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onPoster: () -> Unit, onOpen: (String) -> Unit) {
+fun TrainingScreen(vm: TrainingViewModel, zones: app.fitness.android.ui.log.ZonesViewModel, fmt: Formatter, onPoster: () -> Unit, onOpen: (String) -> Unit) {
     val t = Fitness.theme
     var tab by rememberSaveable { mutableStateOf(Tab.FITNESS) }
     Column(
@@ -60,12 +60,13 @@ fun TrainingScreen(vm: TrainingViewModel, fmt: Formatter, onPoster: () -> Unit, 
             modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
         )
         SegmentedControl(Tab.entries, tab, { it.label }, { tab = it })
-        ThemedCard(onClick = onPoster) {
+        if (tab == Tab.FITNESS) ThemedCard(onClick = onPoster) {
             Text("Your running life, as a poster", color = t.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("Every run you have done, drawn as rings, a spiral, a mountain range and more. Save it as an image.", color = t.muted, fontSize = 12.sp)
         }
         when (tab) {
             Tab.FITNESS -> FitnessTab(vm)
+            Tab.ZONES -> ZonesTab(zones)
             Tab.CURVES -> CurvesTab(vm, fmt, onOpen)
             Tab.RUNNING -> RunningTab(vm, fmt)
             Tab.ROUTES -> RoutesTab(vm, fmt, onOpen)

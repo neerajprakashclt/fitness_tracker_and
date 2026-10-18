@@ -220,9 +220,9 @@ interface ActivityDao {
 @Database(
     entities = [
         ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class,
-        MetricsEntity::class, BestsEntity::class, DailyLoadEntity::class, SettingEntity::class,
+        MetricsEntity::class, BestsEntity::class, DailyLoadEntity::class, SettingEntity::class, GoalEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class FitnessDatabase : RoomDatabase() {
@@ -283,8 +283,18 @@ abstract class FitnessDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 6 added goals. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `goals` (`id` TEXT NOT NULL, `sport` TEXT, `metric` TEXT NOT NULL, `period` TEXT NOT NULL, " +
+                        "`target` REAL NOT NULL, `created_at` TEXT NOT NULL, PRIMARY KEY(`id`))"
+                )
+            }
+        }
+
         fun create(context: Context): FitnessDatabase =
             Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
     }
 }

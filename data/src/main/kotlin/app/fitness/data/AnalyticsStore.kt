@@ -70,6 +70,38 @@ data class SettingEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: String,
 )
 
+/** A target the user set, e.g. 100 km a month. Keyed by a generated id (not a counter) so a later sync maps rows one to one. */
+@Entity(tableName = "goals")
+data class GoalEntity(
+    @PrimaryKey val id: String,
+    /** Null means all sports. */
+    val sport: String?,
+    /** `distance` (metres), `duration` (seconds), `activities` or `elevation` (metres). */
+    val metric: String,
+    /** `week`, `month` or `year`. */
+    val period: String,
+    val target: Double,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+)
+
+/** One activity as the training log reads it. */
+data class LogRow(
+    @ColumnInfo(name = "file_hash") val fileHash: String,
+    val sport: String,
+    @ColumnInfo(name = "start_time") val startTime: String,
+    val duration: Double?,
+    val distance: Double?,
+    @ColumnInfo(name = "elevation_gain") val elevationGain: Double?,
+    val load: Double?,
+    @ColumnInfo(name = "elevation_missing") val elevationMissing: Boolean,
+)
+
+data class ZoneRow(
+    val sport: String,
+    @ColumnInfo(name = "start_time") val startTime: String,
+    @ColumnInfo(name = "hr_hist") val hrHist: String,
+)
+
 /** What the load calculation needs about one activity. */
 data class LoadInput(
     @ColumnInfo(name = "file_hash") val fileHash: String,
@@ -119,6 +151,29 @@ data class EfficiencyRow(
 
 @Dao
 interface AnalyticsDao {
+    @Query(
+        """SELECT a.file_hash, a.sport, a.start_time, a.duration, a.distance, a.elevation_gain, m.load,
+                  (a.elevation_gain IS NULL AND r.polyline IS NOT NULL AND r.polyline != '[]') AS elevation_missing
+           FROM activities a LEFT JOIN activity_metrics m ON m.file_hash = a.file_hash LEFT JOIN routes r ON r.file_hash = a.file_hash
+           ORDER BY a.start_time"""
+    )
+    fun observeLogRows(): Flow<List<LogRow>>
+
+    @Query(
+        """SELECT a.sport, a.start_time, m.hr_hist FROM activities a JOIN activity_metrics m ON m.file_hash = a.file_hash
+           WHERE m.hr_hist IS NOT NULL ORDER BY a.start_time"""
+    )
+    fun observeZoneRows(): Flow<List<ZoneRow>>
+
+    @Query("SELECT * FROM goals ORDER BY created_at, id")
+    fun observeGoals(): Flow<List<GoalEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putGoal(g: GoalEntity)
+
+    @Query("DELETE FROM goals WHERE id = :id")
+    suspend fun deleteGoal(id: String)
+
     @Query(
         """SELECT a.file_hash, a.start_time, a.distance, a.duration, m.load, r.polyline, m.speed_hist, m.hr_hist, m.reps, m.efficiency FROM activities a
            LEFT JOIN activity_metrics m ON m.file_hash = a.file_hash LEFT JOIN routes r ON r.file_hash = a.file_hash

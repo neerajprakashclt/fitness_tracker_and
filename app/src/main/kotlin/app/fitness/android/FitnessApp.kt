@@ -11,6 +11,7 @@ import app.fitness.data.BackupManager
 import app.fitness.data.FitnessDatabase
 import app.fitness.data.FolderImporter
 import app.fitness.data.FolderScan
+import app.fitness.data.LogRepository
 import app.fitness.data.ImportRunner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +37,7 @@ class FitnessApp : Application(), Configuration.Provider {
     private val database by lazy { FitnessDatabase.create(this) }
     val repository by lazy { ActivityRepository(database, filesDir) }
     val analytics by lazy { AnalyticsRepository(database, repository) }
+    val log by lazy { LogRepository(database, repository) }
     val importRunner by lazy { ImportRunner(repository, contentResolver) }
     val folderImporter by lazy { FolderImporter(contentResolver, repository) }
     val backup by lazy { BackupManager(repository) }

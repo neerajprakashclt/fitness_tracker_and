@@ -1,6 +1,8 @@
 package app.fitness.android.ui.charts
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,9 +68,9 @@ fun LinesChart(
     }
     val points = lines.maxOfOrNull { it.x.size } ?: 0
     Column(modifier) {
-        Row(Modifier.padding(start = 4.dp, top = 4.dp)) {
-            Text(title, color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(end = 12.dp))
-            if (lines.size > 1) lines.forEach { Text("● ${it.name}  ", color = it.color, fontSize = 12.sp) }
+        Text(title, color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+        if (lines.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 4.dp)) {
+            lines.forEach { Text("● ${it.name}   ", color = it.color, fontSize = 12.sp, maxLines = 1) }
         }
         if (points == 0) {
             Text("No data yet", color = t.muted, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp, top = 24.dp, bottom = 24.dp))
@@ -80,7 +82,7 @@ fun LinesChart(
                 startAxis = VerticalAxis.rememberStart(valueFormatter = { _, v, _ -> yFormat(v) }),
                 bottomAxis = HorizontalAxis.rememberBottom(
                     valueFormatter = { _, v, _ -> xFormat(v) },
-                    itemPlacer = remember(points) { HorizontalAxis.ItemPlacer.aligned(spacing = { maxOf(1, points / 4) }) },
+                    itemPlacer = remember(points) { HorizontalAxis.ItemPlacer.aligned(spacing = { if (points <= 12) 1 else maxOf(1, points / 4) }) },
                 ),
                 marker = rememberDefaultCartesianMarker(label = rememberTextComponent()),
             ),

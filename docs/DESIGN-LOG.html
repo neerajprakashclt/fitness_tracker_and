@@ -623,7 +623,24 @@
       <dt>Solution</dt><dd>None needed in the code: after the job finished the numbers matched. My wait loop ended too early. Worth knowing: for a couple of minutes after a metrics upgrade the running screens show partial results; they refresh when the job ends.</dd>
     </dl>
   </div>
-  <p>Next: phase 4 (heatmap) when wanted, or the other PC analytics (heart-rate zones by week, load safety, volume and year in review, splits, cadence, goals, the training log).</p>
+
+  <h3>Heart-rate zones, training log, goals <span class="entry-date">2026-10-18</span></h3>
+  <p><code>TrainingLog</code> ports the PC's <code>log.py</code> and <code>dates.py</code> (period totals with empty periods as zeros, month calendar, cumulative year over year, goal progress against the calendar) and <code>WeeklyZoneReport</code> ports the weekly heart-rate zones and the polarization label.
+     <strong>Log tab</strong> (new, between Activities and Training): Totals (week, month or year; distance, time, activities, elevation or load; a bar chart and a table), Calendar (a month grid, tap a day for its activities, tap one to open it), Years (a line per year, adding up month by month), Goals (add a target for a week, month or year on distance, time, activities or elevation, for one sport or all; a progress bar with a tick where the calendar says you should be, and whether you are ahead or behind). All with a sport filter.
+     <strong>Zones</strong> is a new part of the Training tab: hours per week in each of the five zones for 12 weeks, 26 weeks, a year or everything, per sport, the time in each zone, and the mix named (polarized, pyramidal, moderate or intensity-heavy) with what it means.
+     Database version 6 adds <code>goals</code>, keyed by a generated id; adding or removing one is logged in <code>changes</code> for a future sync.</p>
+  <h3>Log, zones and goals results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Totals by week, month and year (735, 170 and 15 rows)</td><td><span class="tag done">pass</span></td><td>Start, activity count, distance, time and load equal the PC's. Elevation is left out of the comparison (see decisions).</td></tr>
+    <tr><td>Year over year (distance, time, load)</td><td><span class="tag done">pass</span></td><td>Every month of every year, including the current year stopping at the current month.</td></tr>
+    <tr><td>Weekly zones and polarization</td><td><span class="tag done">pass</span></td><td>All weeks, the five totals, and the easy, hard and label of the mix.</td></tr>
+    <tr><td>Calendar, goals, labels</td><td><span class="tag done">pass</span></td><td>Unit tests: Monday-first offsets, day grouping, goal progress against the calendar, polarization labels. A goal added on the phone showed 28.21 mi of 30, the calendar's total for the month.</td></tr>
+    <tr><td>Instrumented tests</td><td><span class="tag done">pass</span></td><td>Upgrade 5 to 6; goals stored, logged and removed.</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) Elevation totals are not compared with the PC's: its database holds climb from Strava's CSV or terrain data for 414 activities, which the phone does not apply yet (phase 7), so those weeks differ. (2) A goal's target is stored in metres, seconds or a count and typed in the user's units. (3) The poster card shows only on the Fitness part of the Training tab, and in Settings.
+     (4) Goals on the PC have an integer id; here it is a generated one, as everything else that could sync is keyed by identity, not a counter.</p>
+  <p>Next: phase 4 (heatmap) when wanted, or the other PC analytics (load safety, volume and year in review, splits, cadence) and the phase 7 extras (Strava elevation fill, terrain elevation).</p>
 
   <!-- LOG-ENTRIES-END -->
 </section>

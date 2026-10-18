@@ -34,6 +34,9 @@ import app.fitness.android.ui.activities.ActivitiesScreen
 import app.fitness.android.ui.activities.ActivitiesViewModel
 import app.fitness.android.ui.detail.DetailScreen
 import app.fitness.android.ui.detail.DetailViewModel
+import app.fitness.android.ui.log.LogScreen
+import app.fitness.android.ui.log.LogViewModel
+import app.fitness.android.ui.log.ZonesViewModel
 import app.fitness.android.ui.poster.PosterScreen
 import app.fitness.android.ui.settings.SettingsScreen
 import app.fitness.android.ui.training.TrainingScreen
@@ -53,6 +56,7 @@ class ImportActions(
 
 private object Routes {
     const val ACTIVITIES = "activities"
+    const val LOG = "log"
     const val TRAINING = "training"
     const val POSTER = "poster"
     const val SETTINGS = "settings"
@@ -84,9 +88,14 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
                     val vm: DetailViewModel = viewModel(key = hash, factory = viewModelFactory { initializer { DetailViewModel(app.repository, app.analytics, hash) } })
                     DetailScreen(vm, fmt, streetMap) { nav.popBackStack() }
                 }
+                composable(Routes.LOG) {
+                    val vm: LogViewModel = viewModel(factory = viewModelFactory { initializer { LogViewModel(app.log) } })
+                    LogScreen(vm, fmt) { nav.navigate(Routes.detail(it)) }
+                }
                 composable(Routes.TRAINING) {
                     val vm: TrainingViewModel = viewModel(factory = viewModelFactory { initializer { TrainingViewModel(app.analytics) } })
-                    TrainingScreen(vm, fmt, onPoster = { nav.navigate(Routes.POSTER) }) { nav.navigate(Routes.detail(it)) }
+                    val zones: ZonesViewModel = viewModel(factory = viewModelFactory { initializer { ZonesViewModel(app.log, app.analytics) } })
+                    TrainingScreen(vm, zones, fmt, onPoster = { nav.navigate(Routes.POSTER) }) { nav.navigate(Routes.detail(it)) }
                 }
                 composable(Routes.POSTER) { PosterScreen(app.analytics, units) { nav.popBackStack() } }
                 composable(Routes.SETTINGS) {
@@ -96,7 +105,7 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
             }
         }
         folderPreview?.let { FolderPreviewDialog(it, onStart = actions.startFolder, onDismiss = app::dismissFolderPreview) }
-        if (route == Routes.ACTIVITIES || route == Routes.TRAINING || route == Routes.SETTINGS) {
+        if (route == Routes.ACTIVITIES || route == Routes.LOG || route == Routes.TRAINING || route == Routes.SETTINGS) {
             BottomBar(route) { dest ->
                 nav.navigate(dest) {
                     popUpTo(Routes.ACTIVITIES) { saveState = true }
@@ -143,7 +152,7 @@ private fun FolderPreviewDialog(preview: FolderPreview, onStart: () -> Unit, onD
 @Composable
 private fun BottomBar(current: String?, onSelect: (String) -> Unit) {
     val t = Fitness.theme
-    val items = listOf(Routes.ACTIVITIES to ("Activities" to "●"), Routes.TRAINING to ("Training" to "📈"), Routes.SETTINGS to ("Settings" to "⚙"))
+    val items = listOf(Routes.ACTIVITIES to ("Activities" to "●"), Routes.LOG to ("Log" to "📅"), Routes.TRAINING to ("Training" to "📈"), Routes.SETTINGS to ("Settings" to "⚙"))
     Column(Modifier.background(t.surface).navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(0.dp).background(t.divider).padding(top = if (t.layout == LayoutStyle.GROUPED) 0.5.dp else 1.dp))
         Row(Modifier.fillMaxWidth()) {

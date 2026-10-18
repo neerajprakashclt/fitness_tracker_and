@@ -99,7 +99,7 @@ class AnalyticsParityTest {
         val want = Golden.root.obj("full_history")
         val today = LocalDate.parse(want["today"].str()!!)
 
-        class Row(val hash: String, val sport: String, val start: java.time.Instant, val date: LocalDate, val distance: Double?, val duration: Double?, val metrics: StreamMetrics, val bests: Bests, val polylines: List<String>)
+        class Row(val hash: String, val sport: String, val start: java.time.Instant, val date: LocalDate, val distance: Double?, val duration: Double?, val elevation: Double?, val metrics: StreamMetrics, val bests: Bests, val polylines: List<String>)
 
         fun activityId(name: String): Long =
             Regex("^[0-9]+").find(name.replace(Regex("^[0-9a-f]{12}_"), ""))?.value?.toLongOrNull() ?: -1
@@ -115,7 +115,7 @@ class AnalyticsParityTest {
             if (d !is ImportDecision.Import || d.fileHash in rows) continue
             val a = d.activity
             val sport = pcSport[d.fileHash] ?: d.sport
-            rows[d.fileHash] = Row(d.fileHash, sport, a.startTime, TrainingLoad.localDate(a.startTime), a.distance, a.duration,
+            rows[d.fileHash] = Row(d.fileHash, sport, a.startTime, TrainingLoad.localDate(a.startTime), a.distance, a.duration, a.elevationGain,
                 TrainingLoad.streamMetrics(a.streams, sport), Curves.bestEfforts(sport, a.streams),
                 if (sport == "running") Routes.segments(a.streams) else emptyList())
         }
@@ -136,10 +136,12 @@ class AnalyticsParityTest {
         // Per-activity load.
         val wantMetrics = want.obj("activity_metrics")
         val perDay = HashMap<LocalDate, Double>()
+        val loads = HashMap<String, Double>()
         var methodMismatch = 0
         for (r in rows.values) {
             val load = TrainingLoad.activityLoad(r.sport, r.duration, r.metrics, settings.values)
             perDay.merge(r.date, load.load, Double::plus)
+            loads[r.hash] = load.load
             val w = wantMetrics[r.hash]?.jsonObject
             if (w == null) { bad.items += "${r.hash.take(12)} not in the PC metrics"; continue }
             if (w["load_method"].str() != load.method.label) methodMismatch++
@@ -329,6 +331,41 @@ class AnalyticsParityTest {
                 close(a.obj("trend")["speed_pct_per_year"].num(), b.trend.speedPctPerYear, 1e-6, 1e-9) && close(a.obj("trend")["hr_bpm_per_year"].num(), b.trend.hrBpmPerYear, 1e-6, 1e-9) &&
                 ar.zip(br).all { (x, y) -> x["date"].str() == y.date.toString() && close(x["avg_hr"].num(), y.avgHr, 1e-9, 1e-9) && close(x["efficiency"].num(), y.efficiency, 1e-9, 1e-9) }) {
                 "pc=${a["runs_count"].num()} ${a.obj("trend")} kotlin=${b.runs.size} ${b.trend.speedPctPerYear}/${b.trend.hrBpmPerYear}" }
+        }
+
+        // Training log, year over year and weekly heart-rate zones. Elevation is left out: the PC database holds climb for 414
+        // activities from Strava's CSV and terrain data, which is not applied on the phone yet.
+        val logRows = rows.values.sortedBy { it.start }.map { LogActivity(it.hash, it.sport, it.date, it.duration, it.distance, it.elevation, loads[it.hash], false) }
+        for ((period, key) in listOf(Period.WEEK to "week", Period.MONTH to "month", Period.YEAR to "year")) {
+            val wantRows = (want.obj("log")[key] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            val got = TrainingLog.totals(logRows, period)
+            bad.check("log $key rows", wantRows.size == got.size) { "pc=${wantRows.size} kotlin=${got.size}" }
+            for ((a, b) in wantRows.zip(got)) bad.check("log $key ${a["start"].str()}", a["start"].str() == b.start.toString() && a["activities"].num()!!.toInt() == b.activities &&
+                close(a["distance"].num(), b.distance, 1e-9, 1e-6) && close(a["duration"].num(), b.duration, 1e-9, 1e-6) && close(a["load"].num(), b.load, 1e-9, 1e-6)) {
+                "pc=$a kotlin=${b.start}/${b.activities}/${b.distance}/${b.load}" }
+        }
+        for ((metric, key) in listOf(LogMetric.DISTANCE to "distance", LogMetric.DURATION to "duration", LogMetric.LOAD to "load")) {
+            val wantYears = want.obj("log_yearly").obj(key).obj("years")
+            val got = TrainingLog.yearOverYear(logRows, metric, today)
+            bad.check("yearly $key years", wantYears.keys == got.years.keys.map { it.toString() }.toSet()) { "differs" }
+            for ((year, months) in got.years) {
+                val w = (wantYears[year.toString()] as kotlinx.serialization.json.JsonArray).map { it.num() }
+                bad.check("yearly $key $year", w.size == months.size && w.zip(months).all { (a, b) -> close(a, b, 1e-9, 1e-6) }) { "pc=$w kotlin=$months" }
+            }
+        }
+        val hrRows = rows.values.sortedBy { it.start }.mapNotNull { r -> r.metrics.hrHist?.let { Triple(r.sport, r.date, it) } }
+        val zw = WeeklyZoneReport.weekly(hrRows, settings.maxHr.value!!)
+        val wantZ = want.obj("zones")
+        if (zw == null) bad.items += "no weekly zones" else {
+            val wz = (wantZ["weeks"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
+            bad.check("zone weeks", wz.size == zw.weeks.size) { "pc=${wz.size} kotlin=${zw.weeks.size}" }
+            for ((a, b) in wz.zip(zw.weeks)) bad.check("zones ${a["week_start"].str()}", a["week_start"].str() == b.weekStart.toString() &&
+                (a["seconds"] as kotlinx.serialization.json.JsonArray).map { it.num()!! }.zip(b.seconds.toList()).all { (x, y) -> close(x, y, 1e-9, 1e-6) }) { "differs" }
+            val wt = wantZ.obj("totals")
+            val pol = wt.obj("polarization")
+            bad.check("zone totals", (wt["seconds"] as kotlinx.serialization.json.JsonArray).map { it.num()!! }.zip(zw.totals.toList()).all { (x, y) -> close(x, y, 1e-9, 1e-5) } &&
+                close(pol["easy"].num(), zw.polarization?.easy, 1e-9, 1e-9) && close(pol["hard"].num(), zw.polarization?.hard, 1e-9, 1e-9) && pol["label"].str() == zw.polarization?.label) {
+                "pc=$pol kotlin=${zw.polarization?.label}" }
         }
 
         // Personal-best timeline and weekly streak (the poster's inputs).
