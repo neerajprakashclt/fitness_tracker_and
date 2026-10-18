@@ -16,18 +16,20 @@ right. Read it before porting a feature. Its `CLAUDE.md` records the lessons lea
 
 ## Status
 
-**Phases 0, 1 and 3 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase; phase 2 was skipped
-over by the user's choice and is next). Phase 1: FIT, GPX and TCX import with parse-level parity to the PC (77 fixtures,
+**Phases 0, 1, 2 and 3 done** (see `docs/DESIGN-LOG.html`, which must be appended to at every phase). Phase 1: FIT, GPX and TCX import with parse-level parity to the PC (77 fixtures,
 0 mismatches), Room database keyed by `file_hash`, the activity feed and detail screens (route, tiles, charts, laps),
 import by file picker and share, delete with tombstones, and the theme system (Strava, iOS style, Terminal green, Amber,
 Solarized, Gruvbox, Nord, Dracula). Phase 3: the whole 14-year history is on the phone (3,260 activities, about 208 MB)
 and matches the PC database on every compared field; folder import as a WorkManager job that resumes after a kill,
-same-run detection, rebuild from the original files, backup and restore. Next: phase 2, core analytics (resampling,
-load, curves, bests, thresholds), then phase 4 (heatmap). Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
+same-run detection, rebuild from the original files, backup and restore. Phase 2: resampling, stream metrics,
+training load (TSS / TRIMP / flat rate), CTL/ATL/TSB, best efforts and power/pace curves, estimated or user-set thresholds,
+all matching the PC (0 mismatches on the 77 files and the whole history); a Training tab (fitness chart, curves, best efforts),
+a thresholds editor in Settings and a load tile on the activity. Not ported from the PC's `stream_metrics` yet: efficiency and
+the run profile (they belong to the efficiency and run-type phases). Next: phase 4 (heatmap). Not applied yet: the seed's `pc-side-data.json` (Strava CSV and
 terrain elevation, phase 7). Background: `docs/FEATURE-ANALYSIS.md`. Real-data fixtures and oracles made from the PC app
 are in `seed/` (`golden/`, `pc-activities.json`; gitignored).
 
-Code map: `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
+Code map: `:core` `Resample`, `TrainingLoad` (metrics, thresholds, load, daily series), `Curves` (bests, aggregation); `:data` `AnalyticsRepository` (versioned metrics/bests/daily_load tables, settings; refreshed by a background job at start-up and after imports, deletes and threshold edits); `:core` `Importer` (decode, hash, dispatch) with `FitImporter`/`GpxImporter`/`TcxImporter`, `ImportPlanner` +
 `Similar` (duplicate / same run / import, pure and shared with the tests), `Common` (moving time and the other PC helpers),
 `Routes`, `StreamCodec`, `Format`; `:data` `FitnessDatabase` (version 2, with a migration), `ActivityRepository`
 (import, rebuild, derived data), `FolderImporter`, `BackupManager`, `ImportRunner` (progress state); `:app`
@@ -244,7 +246,7 @@ public remote.
 Real test classes so far: `:core` `ImportParityTest` (all 77 FIT/GPX/TCX fixtures vs the PC: summary, streams, laps,
 routes), `ImportCorpusTest` (every file in `seed/imports` through the pipeline; a measurement that prints counts and
 failures), `FullHistoryParityTest` (replays the whole archive in the PC's order and compares every activity with
-`seed/pc-activities.json`, the PC database's activities table; needs that file), `PolylineTest`, `UnitsTest` (formatting,
+`seed/pc-activities.json`, the PC database's activities table; needs that file), `AnalyticsParityTest` (single files with fixed thresholds, then the whole archive vs `full_history`: settings, loads, daily series, curves), `PolylineTest`, `UnitsTest` (formatting,
 sports, stream codec, chart series, same-run rules); `:data` androidTest `ImportFlowTest` (import, duplicate, delete,
 failure), `BulkFlowTest` (same-run, rebuild, derived data, backup round trip, migration) and `BlobLimitTest`
 (`:data:connectedDebugAndroidTest`, needs the phone or emulator). Regenerate the fixtures on the PC with

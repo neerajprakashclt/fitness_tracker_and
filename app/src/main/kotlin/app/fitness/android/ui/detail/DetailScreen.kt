@@ -43,6 +43,7 @@ import app.fitness.core.Formatter
 import app.fitness.core.Series
 import app.fitness.data.ActivityDetail
 import app.fitness.data.LapItem
+import app.fitness.data.LoadInfo
 import kotlin.math.abs
 
 @Composable
@@ -60,14 +61,14 @@ fun DetailScreen(vm: DetailViewModel, fmt: Formatter, streetMap: Boolean, onBack
         when (val s = state) {
             DetailState.Loading -> Unit
             DetailState.NotFound -> Text("Activity not found", color = t.muted, modifier = Modifier.padding(24.dp))
-            is DetailState.Ready -> Body(s.detail, s.streams, fmt, streetMap)
+            is DetailState.Ready -> Body(s.detail, s.streams, s.load, fmt, streetMap)
         }
     }
     if (confirmDelete) DeleteDialog(1, onConfirm = { confirmDelete = false; vm.delete(onBack) }, onDismiss = { confirmDelete = false })
 }
 
 @Composable
-private fun Body(d: ActivityDetail, streams: StreamDigest?, fmt: Formatter, streetMap: Boolean) {
+private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, fmt: Formatter, streetMap: Boolean) {
     val t = Fitness.theme
     val a = d.activity
     val handle = remember { RouteMapHandle() }
@@ -98,6 +99,8 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, fmt: Formatter, stre
                 if (a.hasDistance) add("Elevation" to fmt.elevation(a.elevationGain))
                 streams?.avgHeartRate?.let { add("Avg HR" to "%.0f bpm".format(it)) }
                 streams?.maxHeartRate?.let { add("Max HR" to "%.0f bpm".format(it)) }
+                load?.normalizedPower?.let { add("Normalized power" to "%.0f W".format(it)) }
+                load?.let { add("Training load" to "%.0f (%s)".format(it.load, loadMethodLabel(it.method))) }
             }
             rows.chunked(2).forEachIndexed { i, pair ->
                 if (i > 0) Box(Modifier.height(14.dp))
@@ -118,6 +121,8 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, fmt: Formatter, stre
         Text("Imported ${d.importedAt.take(10)}", color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 24.dp))
     }
 }
+
+private fun loadMethodLabel(method: String) = when (method) { "power" -> "power"; "hr" -> "heart rate"; else -> "estimated" }
 
 @Composable
 private fun ChartsCard(sport: String, s: StreamDigest, fmt: Formatter, handle: RouteMapHandle) {

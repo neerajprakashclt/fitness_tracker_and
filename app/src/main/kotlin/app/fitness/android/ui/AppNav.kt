@@ -35,6 +35,8 @@ import app.fitness.android.ui.activities.ActivitiesViewModel
 import app.fitness.android.ui.detail.DetailScreen
 import app.fitness.android.ui.detail.DetailViewModel
 import app.fitness.android.ui.settings.SettingsScreen
+import app.fitness.android.ui.training.TrainingScreen
+import app.fitness.android.ui.training.TrainingViewModel
 import app.fitness.android.ui.theme.Fitness
 import app.fitness.android.ui.theme.LayoutStyle
 import app.fitness.core.Formatter
@@ -50,6 +52,7 @@ class ImportActions(
 
 private object Routes {
     const val ACTIVITIES = "activities"
+    const val TRAINING = "training"
     const val SETTINGS = "settings"
     const val DETAIL = "activity/{hash}"
     fun detail(hash: String) = "activity/$hash"
@@ -76,8 +79,12 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
                 }
                 composable(Routes.DETAIL) { e ->
                     val hash = e.arguments?.getString("hash").orEmpty()
-                    val vm: DetailViewModel = viewModel(key = hash, factory = viewModelFactory { initializer { DetailViewModel(app.repository, hash) } })
+                    val vm: DetailViewModel = viewModel(key = hash, factory = viewModelFactory { initializer { DetailViewModel(app.repository, app.analytics, hash) } })
                     DetailScreen(vm, fmt, streetMap) { nav.popBackStack() }
+                }
+                composable(Routes.TRAINING) {
+                    val vm: TrainingViewModel = viewModel(factory = viewModelFactory { initializer { TrainingViewModel(app.analytics) } })
+                    TrainingScreen(vm, fmt) { nav.navigate(Routes.detail(it)) }
                 }
                 composable(Routes.SETTINGS) {
                     val count by app.repository.count().collectAsStateWithLifecycle(initialValue = null)
@@ -86,7 +93,7 @@ fun AppNav(app: FitnessApp, actions: ImportActions, nav: NavHostController = rem
             }
         }
         folderPreview?.let { FolderPreviewDialog(it, onStart = actions.startFolder, onDismiss = app::dismissFolderPreview) }
-        if (route == Routes.ACTIVITIES || route == Routes.SETTINGS) {
+        if (route == Routes.ACTIVITIES || route == Routes.TRAINING || route == Routes.SETTINGS) {
             BottomBar(route) { dest ->
                 nav.navigate(dest) {
                     popUpTo(Routes.ACTIVITIES) { saveState = true }
@@ -133,7 +140,7 @@ private fun FolderPreviewDialog(preview: FolderPreview, onStart: () -> Unit, onD
 @Composable
 private fun BottomBar(current: String?, onSelect: (String) -> Unit) {
     val t = Fitness.theme
-    val items = listOf(Routes.ACTIVITIES to ("Activities" to "●"), Routes.SETTINGS to ("Settings" to "⚙"))
+    val items = listOf(Routes.ACTIVITIES to ("Activities" to "●"), Routes.TRAINING to ("Training" to "📈"), Routes.SETTINGS to ("Settings" to "⚙"))
     Column(Modifier.background(t.surface).navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().padding(0.dp).background(t.divider).padding(top = if (t.layout == LayoutStyle.GROUPED) 0.5.dp else 1.dp))
         Row(Modifier.fillMaxWidth()) {

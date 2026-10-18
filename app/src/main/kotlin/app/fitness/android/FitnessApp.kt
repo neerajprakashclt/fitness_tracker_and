@@ -6,6 +6,7 @@ import androidx.work.Configuration
 import app.fitness.android.ui.Prefs
 import app.fitness.android.work.BulkWorker
 import app.fitness.data.ActivityRepository
+import app.fitness.data.AnalyticsRepository
 import app.fitness.data.BackupManager
 import app.fitness.data.FitnessDatabase
 import app.fitness.data.FolderImporter
@@ -34,6 +35,7 @@ class FitnessApp : Application(), Configuration.Provider {
     val prefs by lazy { Prefs(this) }
     private val database by lazy { FitnessDatabase.create(this) }
     val repository by lazy { ActivityRepository(database, filesDir) }
+    val analytics by lazy { AnalyticsRepository(database, repository) }
     val importRunner by lazy { ImportRunner(repository, contentResolver) }
     val folderImporter by lazy { FolderImporter(contentResolver, repository) }
     val backup by lazy { BackupManager(repository) }
@@ -49,8 +51,14 @@ class FitnessApp : Application(), Configuration.Provider {
         // Files picked or shared follow the Settings choices.
         appScope.launch { prefs.untyped.collect { importRunner.untyped = it } }
         appScope.launch { prefs.match.collect { importRunner.match = it } }
-        // Derived data (routes) is rebuilt when missing or built by older logic.
-        appScope.launch { repository.ensureDerived() }
+        // Derived data is rebuilt when missing or built by older logic. The analytics for a whole history take a minute or
+        // two, so they run as a background job; with nothing outdated only the day-by-day series is brought up to today.
+        repository.afterDelete = { analytics.recomputeLoad() }
+        importRunner.afterPicked = { analytics.refresh() }
+        appScope.launch {
+            repository.ensureDerived()
+            if (analytics.outdatedCount() > 100) BulkWorker.analytics(this@FitnessApp) else analytics.refresh()
+        }
     }
 
     /** List the folder the user chose and show what is in it; nothing is imported until they confirm. */

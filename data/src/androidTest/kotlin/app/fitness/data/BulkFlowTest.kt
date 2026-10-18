@@ -131,4 +131,36 @@ class BulkFlowTest {
         db.execSQL("INSERT INTO import_log (doc_key, size, modified, outcome, file_hash, message, logged_at) VALUES ('k', 1, 2, 'imported', 'abc', NULL, 'now')")
         db.close()
     }
+
+    @Test
+    fun upgradingToVersionThreeAddsTheAnalyticsTables() {
+        val name = "migration-test-3"
+        migrations.createDatabase(name, 2).close()
+        val db = migrations.runMigrationsAndValidate(name, 3, true, FitnessDatabase.MIGRATION_2_3)
+        db.execSQL("INSERT INTO settings (`key`, value, updated_at) VALUES ('ftp', 250.0, 'now')")
+        db.close()
+    }
+
+    @Test
+    fun analyticsAreComputedFromTheStreamsAndFollowTheThresholds() = runBlocking<Unit> {
+        val analytics = AnalyticsRepository(db, repo)
+        val hash = (repo.import("run.gpx", gpx(points = 60)) as ImportOutcome.Imported).fileHash
+        assertEquals(1, analytics.outdatedCount())
+        analytics.refresh()
+        assertEquals(0, analytics.outdatedCount())
+        val info = analytics.loadOf(hash)!!
+        assertTrue(info.load > 0)
+        assertTrue(analytics.daily().first().isNotEmpty())
+        // A foot activity with no heart rate is scored at a flat rate per hour, so thresholds do not change it.
+        assertEquals("duration", info.method)
+        analytics.saveSetting("max_hr", 190.0)
+        assertEquals(190.0, analytics.settings().first().maxHr.value)
+        analytics.saveSetting("max_hr", null)
+        assertEquals(null, analytics.settings().first().maxHr.source) // cleared, and no heart-rate data to estimate from
+        assertTrue(analytics.curveSports().contains("running"))
+        // Deleting the activity removes its derived rows; the load series follows.
+        repo.afterDelete = { analytics.recomputeLoad() }
+        repo.delete(listOf(hash))
+        assertTrue(analytics.daily().first().isEmpty())
+    }
 }

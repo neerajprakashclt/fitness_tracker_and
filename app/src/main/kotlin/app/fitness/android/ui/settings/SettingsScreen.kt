@@ -94,6 +94,8 @@ fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?)
             Text("Display only. Everything is stored in metric.", color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
         }
 
+        ThresholdsSection(app.analytics)
+
         SectionHeader("Import")
         ThemedCard {
             SwitchRow(

@@ -52,6 +52,9 @@ class ImportRunner(private val repo: ActivityRepository, private val resolver: C
     @Volatile var untyped: UntypedSport = UntypedSport.GUESS_FOOT
     @Volatile var match: MatchMode = MatchMode.MOMENT
 
+    /** Called when a run of picked or shared files has finished, so derived data can catch up with the new activities. */
+    @Volatile var afterPicked: (suspend () -> Unit)? = null
+
     private val queue = Channel<Uri>(Channel.UNLIMITED)
 
     init {
@@ -59,6 +62,7 @@ class ImportRunner(private val repo: ActivityRepository, private val resolver: C
             for (uri in queue) {
                 importOne(uri)
                 _state.update { if (it.done >= it.total) it.copy(running = false, finished = true, current = null) else it }
+                if (_state.value.finished) afterPicked?.invoke()
             }
         }
     }

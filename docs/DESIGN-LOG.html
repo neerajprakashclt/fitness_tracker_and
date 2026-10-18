@@ -163,7 +163,7 @@
     <tr><td>C</td><td>Golden-fixture exporter (PC side)</td><td><span class="tag done">done</span></td><td>77 inputs, per-file + mini-history + full-history oracle, constants</td></tr>
     <tr><td>0</td><td>Spikes: FIT SDK on real files, Vico, MapLibre, Room; scaffold modules</td><td><span class="tag done">done</span></td><td>All go; streams become files, duration axis is ordinal</td></tr>
     <tr><td>1</td><td>Import and browse, with the theme system (Strava, iOS, Unix themes)</td><td><span class="tag done">done</span></td><td>Parse-level parity; list and detail correct; themes switch live</td></tr>
-    <tr><td>2</td><td>Core analytics (resampling, load, curves, charts)</td><td><span class="tag active">next (after 3, by choice)</span></td><td>Layer 1 parity</td></tr>
+    <tr><td>2</td><td>Core analytics (resampling, load, curves, charts)</td><td><span class="tag done">done</span></td><td>Layer 1 parity</td></tr>
     <tr><td>3</td><td>Bulk import and rebuild, backup/export</td><td><span class="tag done">done</span></td><td>All 3,265 files import unattended and match the PC</td></tr>
     <tr><td>4</td><td>Heatmap</td><td><span class="tag active">next</span></td><td>Smooth with all routes</td></tr>
     <tr><td>5</td><td>Log, zones, load safety, efficiency</td><td><span class="tag todo">planned</span></td><td>Layer 2 parity</td></tr>
@@ -536,6 +536,34 @@
   </div>
   <p><strong>Phase 3 is complete.</strong> The minimum useful app is closer: everything is on the phone and matches the PC; what is still missing is the analytics (load, curves, bests, thresholds) in phase 2.</p>
 
+
+  <h3>Phase 2: core analytics <span class="entry-date">2026-10-18</span></h3>
+  <p>Goal: the numbers the PC app shows (training load, fitness and fatigue, best efforts, power and pace curves, thresholds) on the phone, identical to the PC's.</p>
+  <p><strong>What was built.</strong> <code>:core</code>: <code>Resample</code> (1 Hz, pauses dropped, short gaps filled or interpolated), <code>TrainingLoad</code> (normalized power, heart-rate histogram, TSS / TRIMP / flat-rate load,
+     estimated thresholds, CTL/ATL/TSB by local day), <code>Curves</code> (best window means, fastest time per standard distance, best per span across activities).
+     <code>:data</code>: schema version 3 (<code>activity_metrics</code>, <code>activity_bests</code>, <code>daily_load</code>, <code>settings</code>) with a tested migration; <code>AnalyticsRepository</code> computes what is missing from the stream files,
+     then the load and the daily series; it runs as a background job (about 90 s for the whole history) at start-up when much is outdated, and after imports, deletes and threshold edits. Threshold edits are logged in <code>changes</code>.
+     <code>:app</code>: a Training tab (current fitness, fatigue and form, range filter, two charts; curves per sport with a best-efforts table that opens the activity), a thresholds editor in Settings (value, source, "use estimate"), and training load and normalized power tiles on the activity.</p>
+  <h3>Phase 2 results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>77 single files, thresholds fixed by the exporter</td><td><span class="tag done">pass</span></td><td>Normalized power, 20-minute power, max HR, HR histogram, all bests and the load score and method equal the PC's, within 1e-9.</td></tr>
+    <tr><td>Whole archive replayed vs the PC's full-history fixture</td><td><span class="tag done">pass</span></td><td>3,260 activities: estimated thresholds, every load score and method, all 5,139 daily rows of load, CTL, ATL and TSB, and every curve point (value and date) for every sport: 0 mismatches.</td></tr>
+    <tr><td>On the phone</td><td><span class="tag done">pass</span></td><td>The database pulled from the phone: 3,260 load scores equal the PC's; CTL and ATL differ by at most 3e-14 over all shared days. The extra day and walk since the export are in the series.</td></tr>
+    <tr><td>Instrumented tests</td><td><span class="tag done">pass</span></td><td>Upgrade 2 to 3; analytics computed, thresholds change and clear, delete updates the series.</td></tr>
+  </table>
+  <p><strong>Decisions.</strong> (1) Efficiency and the run profile, which the PC computes inside <code>stream_metrics</code>, are left for their own phases. (2) The parity replay takes sports from the PC database, so the 3 old files the PC left "unknown" and the app labels walking do not blur the comparison. (3) Best-effort ties keep the earliest activity, as the PC does. (4) The fitness series is thinned to about 400 points for drawing; the stored series is complete.</p>
+  <h3>Issues in phase 2</h3>
+  <div class="issue">
+    <h4>Issue G1: <code>rint</code> does not exist in Kotlin</h4>
+    <dl><dt>Symptom</dt><dd>Compile error on the rounding of pandas-style half-to-even values.</dd><dt>Cause</dt><dd>Kotlin's <code>round()</code> is already half-to-even; there is no <code>rint</code>.</dd><dt>Solution</dt><dd>Used <code>kotlin.math.round</code>, which matches Python's <code>round</code> and numpy.</dd></dl>
+  </div>
+  <div class="issue">
+    <h4>Issue G2: pace curve shaded on the wrong side</h4>
+    <dl><dt>Symptom</dt><dd>On the phone the pace curve's fill covered the area above the line.</dd><dt>Cause</dt><dd>Pace is drawn negated so faster is higher; the fill runs toward zero.</dd><dt>Solution</dt><dd>No fill on the pace and speed curves; power keeps it.</dd></dl>
+  </div>
+  <p><strong>Phase 2 is complete.</strong> Next is phase 4, the heatmap.</p>
+
   <!-- LOG-ENTRIES-END -->
 </section>
 
@@ -568,6 +596,8 @@
     <tr><td>F2</td><td>PC database holds runs its own same-run rule would skip</td><td><span class="tag done">documented, pinned by a test</span></td></tr>
     <tr><td>F3</td><td>Stale ongoing notification after a job</td><td><span class="tag done">fixed</span></td></tr>
     <tr><td>F4</td><td>I reset settings the user had chosen</td><td><span class="tag done">restored; imperial is now the default</span></td></tr>
+    <tr><td>G1</td><td>No <code>rint</code> in Kotlin</td><td><span class="tag done">use round()</span></td></tr>
+    <tr><td>G2</td><td>Pace curve shaded on the wrong side</td><td><span class="tag done">fixed</span></td></tr>
   </table>
 </section>
 

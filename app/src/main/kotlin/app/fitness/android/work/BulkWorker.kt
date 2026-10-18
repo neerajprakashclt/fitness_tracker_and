@@ -30,7 +30,10 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     override suspend fun doWork(): Result {
         val mode = inputData.getString(MODE) ?: return Result.failure()
-        val title = when (mode) { MODE_FOLDER -> "Importing a folder"; MODE_REBUILD -> "Rebuilding from the archive"; else -> "Restoring a backup" }
+        val title = when (mode) {
+            MODE_FOLDER -> "Importing a folder"; MODE_REBUILD -> "Rebuilding from the archive"
+            MODE_ANALYTICS -> "Computing training load"; else -> "Restoring a backup"
+        }
         try { setForeground(info(title, null)) } catch (_: Exception) { /* not allowed in the background: carry on without the notification */ }
         return coroutineScope {
             val updates = launch {
@@ -46,6 +49,11 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                         val tree = Uri.parse(inputData.getString(URI) ?: return@coroutineScope Result.failure())
                         app.folderImporter.run(app.folderImporter.scan(tree), untyped, app.prefs.match.value, runner)
                     }
+                    MODE_ANALYTICS -> {
+                        runner.beginRun(title, 0)
+                        app.analytics.refresh { done, total -> runner.progress(done, total) }
+                        runner.dismiss()
+                    }
                     MODE_REBUILD -> {
                         runner.beginRun(title, 0)
                         val r = app.repository.rebuild(untyped) { done, total -> runner.progress(done, total) }
@@ -60,6 +68,7 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                         else stream.use { app.backup.restore(it, untyped, runner) }
                     }
                 }
+                if (mode != MODE_ANALYTICS) computeAnalytics(runner)
                 Result.success()
             } finally {
                 // A late progress update could re-post the ongoing notification after the system removed it.
@@ -67,6 +76,16 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 applicationContext.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
             }
         }
+    }
+
+    /** After an import, rebuild, or restore: metrics, bests and load for what is new. The import summary stays on screen. */
+    private suspend fun computeAnalytics(runner: app.fitness.data.ImportRunner) {
+        val nm = applicationContext.getSystemService(NotificationManager::class.java)
+        val todo = app.analytics.outdatedCount()
+        if (todo == 0) { app.analytics.recomputeLoad(); return }
+        val title = "Computing training load"
+        try { setForeground(info(title, null)) } catch (_: Exception) { }
+        app.analytics.refresh { done, total -> nm.notify(NOTIFICATION_ID, notification(title, ImportState(running = true, total = total, done = done))) }
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo = info("Working…", null)
@@ -90,6 +109,7 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private const val MODE_FOLDER = "folder"
         private const val MODE_REBUILD = "rebuild"
         private const val MODE_RESTORE = "restore"
+        private const val MODE_ANALYTICS = "analytics"
         private const val CHANNEL = "imports"
         private const val NOTIFICATION_ID = 7
         private const val UNIQUE = "bulk-job"
@@ -102,6 +122,8 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         fun importFolder(context: Context, tree: Uri) =
             enqueue(context, Data.Builder().putString(MODE, MODE_FOLDER).putString(URI, tree.toString()).build())
+
+        fun analytics(context: Context) = enqueue(context, Data.Builder().putString(MODE, MODE_ANALYTICS).build())
 
         fun rebuild(context: Context) = enqueue(context, Data.Builder().putString(MODE, MODE_REBUILD).build())
 

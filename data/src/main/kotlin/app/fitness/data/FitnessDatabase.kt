@@ -218,12 +218,16 @@ interface ActivityDao {
 }
 
 @Database(
-    entities = [ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class],
-    version = 2,
+    entities = [
+        ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class,
+        MetricsEntity::class, BestsEntity::class, DailyLoadEntity::class, SettingEntity::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 abstract class FitnessDatabase : RoomDatabase() {
     abstract fun activities(): ActivityDao
+    abstract fun analytics(): AnalyticsDao
 
     companion object {
         /** Version 2 added the import log. */
@@ -236,8 +240,28 @@ abstract class FitnessDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 3 added the analytics tables (metrics, bests, daily load) and the thresholds. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `activity_metrics` (`file_hash` TEXT NOT NULL, `version` INTEGER NOT NULL, `normalized_power` REAL, " +
+                        "`power_seconds` REAL, `best_20min_power` REAL, `hr_max` REAL, `hr_hist` TEXT, `load` REAL, `load_method` TEXT, PRIMARY KEY(`file_hash`), " +
+                        "FOREIGN KEY(`file_hash`) REFERENCES `activities`(`file_hash`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `activity_bests` (`file_hash` TEXT NOT NULL, `version` INTEGER NOT NULL, `data` TEXT NOT NULL, PRIMARY KEY(`file_hash`), " +
+                        "FOREIGN KEY(`file_hash`) REFERENCES `activities`(`file_hash`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `daily_load` (`date` TEXT NOT NULL, `load` REAL NOT NULL, `ctl` REAL NOT NULL, `atl` REAL NOT NULL, " +
+                        "`tsb` REAL NOT NULL, PRIMARY KEY(`date`))"
+                )
+                db.execSQL("CREATE TABLE IF NOT EXISTS `settings` (`key` TEXT NOT NULL, `value` REAL NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`key`))")
+            }
+        }
+
         fun create(context: Context): FitnessDatabase =
             Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db")
-                .addMigrations(MIGRATION_1_2).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }

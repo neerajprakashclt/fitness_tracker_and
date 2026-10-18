@@ -92,6 +92,9 @@ class ActivityRepository(private val db: FitnessDatabase, private val filesDir: 
     private val json = Json
 
     internal fun dao() = dao
+
+    /** Called after activities are deleted, so derived data that sums over all activities (the load series) can catch up. */
+    @Volatile var afterDelete: (suspend () -> Unit)? = null
     internal fun archiveFiles(): List<File> = importsDir.listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
 
     private val lookup = object : ActivityLookup {
@@ -205,7 +208,10 @@ class ActivityRepository(private val db: FitnessDatabase, private val filesDir: 
             dao.delete(chunk)
         }
         hashes.forEach { File(streamsDir, "$it.json.gz").delete() }
+        afterDelete?.invoke()
     }
+
+    suspend fun sportOf(hash: String): String? = dao.get(hash)?.sport
 
     /** The feed, newest first. [fromTime] inclusive, [toTime] exclusive; null leaves that side open. */
     fun list(fromTime: Instant?, toTime: Instant?, sport: String?): Flow<List<ActivityListItem>> =

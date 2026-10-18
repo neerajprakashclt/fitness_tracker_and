@@ -6,6 +6,8 @@ import app.fitness.core.ChartSeries
 import app.fitness.core.Series
 import app.fitness.data.ActivityDetail
 import app.fitness.data.ActivityRepository
+import app.fitness.data.AnalyticsRepository
+import app.fitness.data.LoadInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,10 +30,10 @@ class StreamDigest(
 sealed interface DetailState {
     data object Loading : DetailState
     data object NotFound : DetailState
-    class Ready(val detail: ActivityDetail, val streams: StreamDigest?) : DetailState
+    class Ready(val detail: ActivityDetail, val streams: StreamDigest?, val load: LoadInfo? = null) : DetailState
 }
 
-class DetailViewModel(private val repo: ActivityRepository, private val hash: String) : ViewModel() {
+class DetailViewModel(private val repo: ActivityRepository, private val analytics: AnalyticsRepository, private val hash: String) : ViewModel() {
     private val _state = MutableStateFlow<DetailState>(DetailState.Loading)
     val state: StateFlow<DetailState> = _state
 
@@ -39,9 +41,10 @@ class DetailViewModel(private val repo: ActivityRepository, private val hash: St
         viewModelScope.launch {
             val detail = repo.detail(hash)
             if (detail == null) { _state.value = DetailState.NotFound; return@launch }
-            _state.value = DetailState.Ready(detail, null)          // show tiles, route and laps while the charts load
+            val load = analytics.loadOf(hash)
+            _state.value = DetailState.Ready(detail, null, load)    // show tiles, route and laps while the charts load
             val digest = withContext(Dispatchers.Default) { repo.streams(hash)?.let(::digest) }
-            _state.value = DetailState.Ready(detail, digest)
+            _state.value = DetailState.Ready(detail, digest, load)
         }
     }
 
