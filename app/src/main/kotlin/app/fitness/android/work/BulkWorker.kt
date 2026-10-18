@@ -32,7 +32,7 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val mode = inputData.getString(MODE) ?: return Result.failure()
         val title = when (mode) {
             MODE_FOLDER -> "Importing a folder"; MODE_REBUILD -> "Rebuilding from the archive"
-            MODE_ANALYTICS -> "Computing training load"; else -> "Restoring a backup"
+            MODE_ANALYTICS -> "Computing training load"; MODE_TERRAIN -> "Looking up terrain elevation"; else -> "Restoring a backup"
         }
         try { setForeground(info(title, null)) } catch (_: Exception) { /* not allowed in the background: carry on without the notification */ }
         return coroutineScope {
@@ -54,6 +54,12 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                         app.analytics.refresh { done, total -> runner.progress(done, total) }
                         runner.dismiss()
                     }
+                    MODE_TERRAIN -> {
+                        runner.beginRun(title, 0)
+                        val r = app.repository.fillTerrain(app.terrainService()) { done, total -> runner.progress(done, total) }
+                        runner.note("Terrain elevation added to ${r.filled} activities" + if (r.failed > 0) "; ${r.failed} could not be done" + (r.firstError?.let { ": $it" } ?: "") else "")
+                        runner.endRun()
+                    }
                     MODE_REBUILD -> {
                         runner.beginRun(title, 0)
                         val r = app.repository.rebuild(untyped) { done, total -> runner.progress(done, total) }
@@ -68,7 +74,7 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                         else stream.use { app.backup.restore(it, untyped, runner) }
                     }
                 }
-                if (mode != MODE_ANALYTICS) computeAnalytics(runner)
+                if (mode != MODE_ANALYTICS && mode != MODE_TERRAIN) computeAnalytics(runner)
                 Result.success()
             } finally {
                 // A late progress update could re-post the ongoing notification after the system removed it.
@@ -110,6 +116,7 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private const val MODE_REBUILD = "rebuild"
         private const val MODE_RESTORE = "restore"
         private const val MODE_ANALYTICS = "analytics"
+        private const val MODE_TERRAIN = "terrain"
         private const val CHANNEL = "imports"
         private const val NOTIFICATION_ID = 7
         private const val UNIQUE = "bulk-job"
@@ -124,6 +131,8 @@ class BulkWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             enqueue(context, Data.Builder().putString(MODE, MODE_FOLDER).putString(URI, tree.toString()).build())
 
         fun analytics(context: Context) = enqueue(context, Data.Builder().putString(MODE, MODE_ANALYTICS).build())
+
+        fun terrain(context: Context) = enqueue(context, Data.Builder().putString(MODE, MODE_TERRAIN).build())
 
         fun rebuild(context: Context) = enqueue(context, Data.Builder().putString(MODE, MODE_REBUILD).build())
 

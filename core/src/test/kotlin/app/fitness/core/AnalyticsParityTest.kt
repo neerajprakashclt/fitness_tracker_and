@@ -117,7 +117,7 @@ class AnalyticsParityTest {
             val sport = pcSport[d.fileHash] ?: d.sport
             rows[d.fileHash] = Row(d.fileHash, sport, a.startTime, TrainingLoad.localDate(a.startTime), a.distance, a.duration, a.elevationGain,
                 TrainingLoad.streamMetrics(a.streams, sport), Curves.bestEfforts(sport, a.streams),
-                if (sport == "running") Routes.segments(a.streams) else emptyList())
+                Routes.segments(a.streams))
         }
         println("replayed ${order.size} files into ${rows.size} activities")
 
@@ -333,18 +333,23 @@ class AnalyticsParityTest {
                 "pc=${a["runs_count"].num()} ${a.obj("trend")} kotlin=${b.runs.size} ${b.trend.speedPctPerYear}/${b.trend.hrBpmPerYear}" }
         }
 
-        // Training log, year over year and weekly heart-rate zones. Elevation is left out: the PC database holds climb for 414
-        // activities from Strava's CSV and terrain data, which is not applied on the phone yet.
-        val logRows = rows.values.sortedBy { it.start }.map { LogActivity(it.hash, it.sport, it.date, it.duration, it.distance, it.elevation, loads[it.hash], false) }
+        // Training log, year over year and weekly heart-rate zones, with the climb Strava's CSV and terrain data add to the files.
+        val sideGain = Json.parseToJsonElement(File(seed, "pc-side-data.json").readText()).jsonObject.values
+            .flatMap { (it as kotlinx.serialization.json.JsonArray) }.associate { it.jsonObject["file_hash"].str()!! to it.jsonObject["elevation_gain"].num()!! }
+        val logRows = rows.values.sortedBy { it.start }.map {
+            val gain = it.elevation ?: sideGain[it.hash]
+            LogActivity(it.hash, it.sport, it.date, it.duration, it.distance, gain, loads[it.hash], gain == null && it.polylines.isNotEmpty())
+        }
         for ((period, key) in listOf(Period.WEEK to "week", Period.MONTH to "month", Period.YEAR to "year")) {
             val wantRows = (want.obj("log")[key] as kotlinx.serialization.json.JsonArray).map { it.jsonObject }
             val got = TrainingLog.totals(logRows, period)
             bad.check("log $key rows", wantRows.size == got.size) { "pc=${wantRows.size} kotlin=${got.size}" }
             for ((a, b) in wantRows.zip(got)) bad.check("log $key ${a["start"].str()}", a["start"].str() == b.start.toString() && a["activities"].num()!!.toInt() == b.activities &&
-                close(a["distance"].num(), b.distance, 1e-9, 1e-6) && close(a["duration"].num(), b.duration, 1e-9, 1e-6) && close(a["load"].num(), b.load, 1e-9, 1e-6)) {
-                "pc=$a kotlin=${b.start}/${b.activities}/${b.distance}/${b.load}" }
+                close(a["distance"].num(), b.distance, 1e-9, 1e-6) && close(a["duration"].num(), b.duration, 1e-9, 1e-6) && close(a["load"].num(), b.load, 1e-9, 1e-6) &&
+                close(a["elevation"].num(), b.elevation, 1e-9, 1e-6) && a["elevation_missing"].num()!!.toInt() == b.elevationMissing) {
+                "pc=$a kotlin=${b.start}/${b.activities}/${b.distance}/${b.load}/${b.elevation}/${b.elevationMissing}" }
         }
-        for ((metric, key) in listOf(LogMetric.DISTANCE to "distance", LogMetric.DURATION to "duration", LogMetric.LOAD to "load")) {
+        for ((metric, key) in listOf(LogMetric.DISTANCE to "distance", LogMetric.DURATION to "duration", LogMetric.ELEVATION to "elevation", LogMetric.LOAD to "load")) {
             val wantYears = want.obj("log_yearly").obj(key).obj("years")
             val got = TrainingLog.yearOverYear(logRows, metric, today)
             bad.check("yearly $key years", wantYears.keys == got.years.keys.map { it.toString() }.toSet()) { "differs" }

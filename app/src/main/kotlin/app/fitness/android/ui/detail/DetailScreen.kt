@@ -99,7 +99,7 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, ins
                 if (a.hasDistance) add("Distance" to fmt.distance(a.distance))
                 add("Moving time" to Formatter.duration(a.duration))
                 if (a.hasDistance) add(fmt.paceOrSpeedLabel(a.sport) to fmt.paceOrSpeed(a.sport, a.avgSpeed))
-                if (a.hasDistance) add("Elevation" to fmt.elevation(a.elevationGain))
+                if (a.hasDistance) add((if (insight?.elevationSource != null) "Elevation*" else "Elevation") to fmt.elevation(a.elevationGain))
                 streams?.avgHeartRate?.let { add("Avg HR" to "%.0f bpm".format(it)) }
                 streams?.maxHeartRate?.let { add("Max HR" to "%.0f bpm".format(it)) }
                 load?.normalizedPower?.let { add("Normalized power" to "%.0f W".format(it)) }
@@ -115,6 +115,10 @@ private fun Body(d: ActivityDetail, streams: StreamDigest?, load: LoadInfo?, ins
                     if (pair.size == 1) Box(Modifier.weight(1f))
                 }
             }
+        }
+
+        insight?.elevationSource?.let {
+            Text("* Elevation from $it, not recorded by the watch.", color = t.muted, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
         }
 
         if (streams != null) ChartsCard(a.sport, streams, fmt, handle)

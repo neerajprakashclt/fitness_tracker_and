@@ -57,6 +57,9 @@ class MainActivity : ComponentActivity() {
                 val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                     if (uri != null) app.startRestore(uri)
                 }
+                val elevationCsv = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) app.applyStravaCsv(uri)
+                }
                 val actions = ImportActions(
                     files = { files.launch(arrayOf("*/*")) },
                     folder = { folder.launch(null) },
@@ -68,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     },
                     backup = { backup.launch("fitness-backup-${java.time.LocalDate.now()}.zip") },
                     restore = { restore.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    elevationCsv = { elevationCsv.launch(arrayOf("text/csv", "text/comma-separated-values", "application/vnd.ms-excel", "text/plain", "application/octet-stream")) },
                 )
                 AppNav(app, actions)
             }

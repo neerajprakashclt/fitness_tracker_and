@@ -640,7 +640,41 @@
   </table>
   <p><strong>Decisions.</strong> (1) Elevation totals are not compared with the PC's: its database holds climb from Strava's CSV or terrain data for 414 activities, which the phone does not apply yet (phase 7), so those weeks differ. (2) A goal's target is stored in metres, seconds or a count and typed in the user's units. (3) The poster card shows only on the Fitness part of the Training tab, and in Settings.
      (4) Goals on the PC have an integer id; here it is a generated one, as everything else that could sync is keyed by identity, not a counter.</p>
-  <p>Next: phase 4 (heatmap) when wanted, or the other PC analytics (load safety, volume and year in review, splits, cadence) and the phase 7 extras (Strava elevation fill, terrain elevation).</p>
+
+  <h3>Elevation fill <span class="entry-date">2026-10-18</span></h3>
+  <p>Some watches (Amazfit) record no altitude, so about 580 of the 3,260 runs and walks had a GPS track and no climb. Two sources fill the gap, both ported from the PC app:
+     <strong>Strava's activities.csv</strong> (a total per activity, matched to the files by the CSV's file name, never by activity id) and <strong>terrain data</strong> (a height for a point every 25 m along the track, from "terrarium" map tiles, no smoothing, climbs counted at 2 m; tuned on the PC against Strava's gain for 45 activities).
+     <strong>Going forward:</strong> a file's own altitude always wins and nothing is looked up for it. For a new file with a track and no altitude: the climb already stored for it (a rebuild, a restore) is used; else, if the user has switched on "Look up elevation for new files" in Settings (off by default, it uses the network), its tiles are fetched once and cached on the phone; a failed look-up never fails the import and shows up as a note.
+     Importing a Strava export's top folder applies its activities.csv by itself; the same action is in Settings for any other time. A one-off "look up terrain elevation for N activities" covers the existing ones after a confirmation.
+     Both kinds are stored apart from the activity (no foreign key, because a rebuild replaces the row), so a rebuild puts them back without calling the network again, and a backup carries them (<code>elevation.json</code>). The activity screen marks such climb with an asterisk and its source. Database version 7.</p>
+  <h3>Elevation fill results</h3>
+  <table>
+    <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
+    <tr><td>Terrain profiles of the 8 activities the PC filled</td><td><span class="tag done">pass</span></td><td>Rebuilt from the PC's cached tiles: every altitude sample and every gain equal the PC's (largest difference 0.0 m).</td></tr>
+    <tr><td>Strava overrides</td><td><span class="tag done">pass</span></td><td>All 406 overrides the PC holds are found in activities.csv (1,591 rows with a climb) by file name.</td></tr>
+    <tr><td>Whole history and the log with elevation</td><td><span class="tag done">pass</span></td><td>Elevation of all 3,260 activities, and the week, month, year and year-over-year elevation totals and "elevation missing" counts, equal the PC's (0 mismatches). These were left out before.</td></tr>
+    <tr><td>One real tile</td><td><span class="tag done">pass</span></td><td>On the phone: a tile downloaded from AWS Open Data, decoded and read about 1,620 m for Boulder; the second look-up came from the cache.</td></tr>
+    <tr><td>Instrumented tests</td><td><span class="tag done">pass</span></td><td>The file's own altitude is untouched; a look-up fills, survives a rebuild and does not ask again; a failure never fails the import; no service means no look-up; the CSV fills gaps only and a second run adds nothing; both survive a backup round trip; the one-off fill; upgrade 6 to 7.</td></tr>
+    <tr><td>On the phone's real history</td><td><span class="tag done">403 of 406</span></td><td>The Settings action filled 403 activities. 8 more are the PC's terrain ones (not run: the one-off look-up is for the user to choose, 174 activities have a track and no climb).</td></tr>
+  </table>
+  <div class="issue">
+    <h4>Issue H1: the CSV matched nothing on the phone's history</h4>
+    <dl>
+      <dt>Symptom</dt><dd>"Nothing to add: 1591 rows with a climb, but none matches."</dd>
+      <dt>Cause</dt><dd>The history on the phone was imported from the seed folder, whose file names already carry the PC's hash prefix, so the archived name had two prefixes and only one was removed before matching.</dd>
+      <dt>Solution</dt><dd>All leading hash prefixes are removed (a test covers it). Files straight from a Strava export were never affected.</dd>
+    </dl>
+  </div>
+  <div class="issue">
+    <h4>Issue H2: three activities stay without climb</h4>
+    <dl>
+      <dt>Symptom</dt><dd>3 of the PC's 406 overrides were not applied.</dd>
+      <dt>Cause</dt><dd>The same recording exists in the archive under two names (for example <code>923.fit</code> and <code>21456601496.fit.gz</code>). The phone kept the first and the CSV lists only the second, and a name is all the CSV gives.</dd>
+      <dt>Solution</dt><dd>None: three activities of 3,260; their climb can be filled by the terrain look-up.</dd>
+    </dl>
+  </div>
+  <p>Decisions. (1) Terrain look-up is off by default and never touches existing activities unless asked, as on the PC. (2) Only the tile source is ported; the PC's Open-Meteo (over-counted by about 30%) and local SRTM files are not. (3) The look-up gives up after 5 failures in a row so an import with no connection is not slowed by timeouts; turning the option off and on resets it.</p>
+  <p>Next: phase 4 (heatmap) when wanted, or the other PC analytics (load safety, volume and year in review, splits, cadence).</p>
 
   <!-- LOG-ENTRIES-END -->
 </section>

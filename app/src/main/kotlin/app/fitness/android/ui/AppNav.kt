@@ -52,6 +52,7 @@ class ImportActions(
     val startFolder: () -> Unit,
     val backup: () -> Unit,
     val restore: () -> Unit,
+    val elevationCsv: () -> Unit,
 )
 
 private object Routes {

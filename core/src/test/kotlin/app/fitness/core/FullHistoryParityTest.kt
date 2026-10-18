@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * End to end: replay the whole staged archive through the import pipeline in the PC's order (Strava activity id, oldest
  * first) and compare the result with the PC's own database (`seed/pc-activities.json`, exported read-only from it): the
  * same set of activities, and for each one the same sport, start, moving time, distance, device and lap count. Elevation
- * is compared except where the PC took it from outside the file (Strava's CSV or terrain data), a phase 7 feature.
+ * includes what the PC took from outside the file (Strava's CSV or terrain data), which fills gaps and never replaces the file's own.
  *
  * The comparison runs with same-run detection off because every file in the archive was deliberately imported on the PC,
  * some before it had that rule. A second check shows what the default rule does to this history: it skips exactly two
@@ -59,8 +59,9 @@ class FullHistoryParityTest {
         val oracleFile = File(seed, "pc-activities.json")
         if (!dir.isDirectory || !oracleFile.exists()) { println("seed/imports or pc-activities.json missing: skipped"); return@runBlocking }
 
-        val external = Json.parseToJsonElement(File(seed, "pc-side-data.json").readText()).jsonObject.values
-            .flatMap { it.jsonArray }.map { it.jsonObject["file_hash"]!!.toString().trim('"') }.toSet()
+        // Climb the PC took from outside the file: Strava's CSV (elevation_overrides) and terrain data (terrain_elevation).
+        val sideGain = Json.parseToJsonElement(File(seed, "pc-side-data.json").readText()).jsonObject.values
+            .flatMap { it.jsonArray }.associate { it.jsonObject["file_hash"]!!.toString().trim('"') to it.jsonObject["elevation_gain"].num()!! }
         val oracle = Json.parseToJsonElement(oracleFile.readText()).jsonArray.map { it.jsonObject }
             .associateBy { it["file_hash"]!!.toString().trim('"') }
         val order = dir.listFiles()!!.sortedWith(compareBy({ activityId(it.name) }, { it.name.replace(Regex("^[0-9a-f]{12}_"), "") }))
@@ -85,7 +86,9 @@ class FullHistoryParityTest {
             bad.check("$h distance", close(o["distance"].num(), k.distance, 1e-9, 1e-6)) { "pc=${o["distance"].num()} kotlin=${k.distance}" }
             bad.check("$h device", o["device"].str() == k.device) { "pc=${o["device"].str()} kotlin=${k.device}" }
             bad.check("$h laps", o["laps"].num()!!.toInt() == k.laps) { "pc=${o["laps"].num()} kotlin=${k.laps}" }
-            if (h !in external) bad.check("$h elevation", close(o["elevation_gain"].num(), k.elevation, 1e-9, 1e-6)) { "pc=${o["elevation_gain"].num()} kotlin=${k.elevation}" }
+            // The file's own climb wins; the outside value only fills a gap, as on the PC.
+            val gain = k.elevation ?: sideGain[h]
+            bad.check("$h elevation", close(o["elevation_gain"].num(), gain, 1e-9, 1e-6)) { "pc=${o["elevation_gain"].num()} kotlin=$gain" }
         }
         println("mismatches: ${bad.items.size}; PC 'unknown' now labelled by the run/walk guess: $guessed")
         bad.items.take(40).forEach { println("  MISMATCH $it") }

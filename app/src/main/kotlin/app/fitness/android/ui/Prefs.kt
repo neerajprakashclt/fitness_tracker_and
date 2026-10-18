@@ -40,6 +40,11 @@ class Prefs(context: Context) {
     private val _streetMap = MutableStateFlow(sp.getBoolean("street_map", false))
     val streetMap: StateFlow<Boolean> = _streetMap
 
+    /** Look up ground height for new files that have a GPS track but no altitude. Off by default: it uses the network. */
+    private val _terrain = MutableStateFlow(sp.getBoolean("terrain", false))
+    val terrain: StateFlow<Boolean> = _terrain
+
+    fun setTerrain(on: Boolean) { sp.edit().putBoolean("terrain", on).apply(); _terrain.value = on }
     fun setTheme(id: String) { sp.edit().putString("theme", id).apply(); _theme.value = id }
     fun setAppearance(a: Appearance) { sp.edit().putString("appearance", a.name).apply(); _appearance.value = a }
     fun setUnits(u: Units) { sp.edit().putString("units", u.name).apply(); _units.value = u }

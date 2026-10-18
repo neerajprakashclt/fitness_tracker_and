@@ -32,6 +32,10 @@ class BackupManager(private val repo: ActivityRepository) {
                 zip.write("""{"app":"fitness-tracker-android","version":1,"exported_at":"${Times.format(Instant.now())}","files":${files.size},"activities":$activityCount}"""
                     .toByteArray())
                 zip.closeEntry()
+                // The climb that did not come from the files (Strava's CSV, terrain data): the originals cannot give it back.
+                zip.putNextEntry(ZipEntry("elevation.json"))
+                zip.write(repo.exportElevation().toByteArray())
+                zip.closeEntry()
                 for ((i, f) in files.withIndex()) {
                     currentCoroutineContext().ensureActive()
                     zip.putNextEntry(ZipEntry("imports/${f.name}"))
@@ -56,6 +60,7 @@ class BackupManager(private val repo: ActivityRepository) {
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val entry = zip.nextEntry ?: break
+                    if (entry.name == "elevation.json") { repo.importElevation(zip.readBytes().decodeToString()); continue }
                     if (entry.isDirectory || !entry.name.startsWith("imports/")) continue
                     val name = entry.name.removePrefix("imports/")
                     runner.progress(runner.state.value.done, runner.state.value.total + 1)

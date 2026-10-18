@@ -183,6 +183,124 @@ class BulkFlowTest {
         assertEquals(1, log.rows().first().size)
     }
 
+    private fun gpxNoElevation(day: Int = 1) = String(gpx(day = day)).replace(Regex("<ele>[0-9]+</ele>"), "").toByteArray()
+
+    /** Heights that rise 20 m over the whole track, whatever the track is. */
+    private class Slope : TerrainService {
+        var calls = 0
+        override val provider = "test"
+        override suspend fun lookup(lat: DoubleArray, lon: DoubleArray): app.fitness.core.TerrainProfile {
+            calls++
+            return app.fitness.core.TerrainProfile(DoubleArray(lat.size) { 20.0 * it / (lat.size - 1) }, 20.0)
+        }
+    }
+
+    private class Down : TerrainService {
+        override val provider = "test"
+        override suspend fun lookup(lat: DoubleArray, lon: DoubleArray): app.fitness.core.TerrainProfile = throw app.fitness.core.TerrainException("could not reach the host")
+    }
+
+    @Test
+    fun aFileWithItsOwnElevationIsNeverTouchedAndOneWithoutGetsTerrainClimbThatSurvivesARebuild() = runBlocking<Unit> {
+        val slope = Slope()
+        repo.terrain = slope
+        val own = (repo.import("own.gpx", gpx(day = 1)) as ImportOutcome.Imported)
+        val bare = (repo.import("bare.gpx", gpxNoElevation(day = 2)) as ImportOutcome.Imported)
+        assertEquals(1, slope.calls)                                    // only the file with no altitude was looked up
+        assertEquals(null, repo.elevationSource(own.fileHash))
+        assertEquals("terrain data", repo.elevationSource(bare.fileHash))
+        assertEquals(20.0, repo.detail(bare.fileHash)!!.activity.elevationGain)
+        assertTrue(repo.streams(bare.fileHash)!!.containsKey("altitude"))
+
+        repo.rebuild(UntypedSport.UNKNOWN)                              // the original has no altitude: the stored climb comes back
+        assertEquals(20.0, repo.detail(bare.fileHash)!!.activity.elevationGain)
+        assertTrue(repo.streams(bare.fileHash)!!.containsKey("altitude"))
+        assertEquals(1, slope.calls)                                    // and without asking the source again
+    }
+
+    @Test
+    fun aTerrainFailureNeverFailsTheImport() = runBlocking<Unit> {
+        repo.terrain = Down()
+        val outcome = repo.import("bare.gpx", gpxNoElevation())
+        assertIs<ImportOutcome.Imported>(outcome)
+        assertTrue(outcome.note!!.contains("could not reach the host"))
+        assertEquals(null, repo.detail(outcome.fileHash)!!.activity.elevationGain)
+    }
+
+    @Test
+    fun noTerrainServiceMeansNoLookup() = runBlocking<Unit> {
+        val outcome = repo.import("bare.gpx", gpxNoElevation()) as ImportOutcome.Imported
+        assertEquals(null, outcome.note)
+        assertEquals(null, repo.detail(outcome.fileHash)!!.activity.elevationGain)
+    }
+
+    @Test
+    fun stravaCsvFillsGapsOnlyAndASecondRunAddsNothing() = runBlocking<Unit> {
+        val bare = (repo.import("123.gpx", gpxNoElevation(day = 1)) as ImportOutcome.Imported).fileHash
+        val own = (repo.import("456.gpx", gpx(day = 2)) as ImportOutcome.Imported).fileHash
+        val ownGain = repo.detail(own)!!.activity.elevationGain
+        val csv = "Activity ID,Filename,Elevation Gain\n1,activities/123.gpx,56.0\n2,activities/456.gpx,999.0\n3,activities/other.gpx,5.0\n"
+        val gains = app.fitness.core.StravaCsv.elevationGains(csv)
+        assertEquals(1, repo.applyStravaCsv(gains))                     // the file with its own elevation keeps it
+        assertEquals(56.0, repo.detail(bare)!!.activity.elevationGain)
+        assertEquals(ownGain, repo.detail(own)!!.activity.elevationGain)
+        assertEquals("Strava", repo.elevationSource(bare))
+        assertEquals(0, repo.applyStravaCsv(gains))
+        repo.rebuild(UntypedSport.UNKNOWN)
+        assertEquals(56.0, repo.detail(bare)!!.activity.elevationGain)  // a rebuild puts it back
+    }
+
+    @Test
+    fun theClimbFromOutsideTheFilesSurvivesABackupRoundTrip() = runBlocking<Unit> {
+        repo.terrain = Slope()
+        val terrainOne = (repo.import("t.gpx", gpxNoElevation(day = 1)) as ImportOutcome.Imported).fileHash
+        repo.terrain = null
+        val csvOne = (repo.import("123.gpx", gpxNoElevation(day = 2)) as ImportOutcome.Imported).fileHash
+        repo.applyStravaCsv(mapOf("123.gpx" to 56.0))
+        val zip = ByteArrayOutputStream()
+        BackupManager(repo).export(zip, ImportRunner(repo, ctx.contentResolver), 2)
+
+        val dir2 = File(ctx.cacheDir, "bulk-flow-test-3").apply { deleteRecursively(); mkdirs() }
+        val db2 = Room.inMemoryDatabaseBuilder(ctx, FitnessDatabase::class.java).build()
+        try {
+            val repo2 = ActivityRepository(db2, dir2)
+            BackupManager(repo2).restore(ByteArrayInputStream(zip.toByteArray()), UntypedSport.UNKNOWN, ImportRunner(repo2, ctx.contentResolver))
+            assertEquals(20.0, repo2.detail(terrainOne)!!.activity.elevationGain)
+            assertEquals(56.0, repo2.detail(csvOne)!!.activity.elevationGain)
+            assertTrue(repo2.streams(terrainOne)!!.containsKey("altitude"))
+        } finally {
+            db2.close(); dir2.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun theOneOffTerrainFillOverExistingActivitiesFillsOnlyThoseWithATrackAndNoClimb() = runBlocking<Unit> {
+        val bare = (repo.import("bare.gpx", gpxNoElevation(day = 1)) as ImportOutcome.Imported).fileHash
+        val own = (repo.import("own.gpx", gpx(day = 2)) as ImportOutcome.Imported).fileHash
+        assertEquals(1, repo.missingElevationCount().first())
+        val r = repo.fillTerrain(Slope())
+        assertEquals(1, r.filled)
+        assertEquals(0, repo.missingElevationCount().first())
+        assertEquals(20.0, repo.detail(bare)!!.activity.elevationGain)
+        assertTrue(repo.detail(own)!!.activity.elevationGain != 20.0)
+        val down = repo.import("bare2.gpx", gpxNoElevation(day = 3)) as ImportOutcome.Imported
+        val failed = repo.fillTerrain(Down())
+        assertEquals(0, failed.filled)
+        assertEquals(1, failed.failed)
+        assertEquals("could not reach the host", failed.firstError)
+        assertEquals(null, repo.detail(down.fileHash)!!.activity.elevationGain)
+    }
+
+    @Test
+    fun upgradingToVersionSevenAddsTheElevationTables() {
+        val name = "migration-test-7"
+        migrations.createDatabase(name, 6).close()
+        val db = migrations.runMigrationsAndValidate(name, 7, true, FitnessDatabase.MIGRATION_6_7)
+        db.execSQL("INSERT INTO elevation_overrides (file_hash, elevation_gain, source) VALUES ('h', 5.0, 'strava_csv')")
+        db.execSQL("INSERT INTO terrain_elevation (file_hash, provider, elevation_gain, altitude) VALUES ('h', 'terrarium', 5.0, '[1.0,2.0]')")
+        db.close()
+    }
+
     @Test
     fun analyticsAreComputedFromTheStreamsAndFollowTheThresholds() = runBlocking<Unit> {
         val analytics = AnalyticsRepository(db, repo)

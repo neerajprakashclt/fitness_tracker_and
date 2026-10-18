@@ -57,6 +57,8 @@ class ZoneTime(val names: List<String>, val seconds: DoubleArray, val lows: List
 class ActivityInsight(
     val runType: RunClass?, val paceZones: ZoneTime?, val hrZones: ZoneTime?,
     val efficiency: Double?, val efficiencyBasis: String?, val decoupling: Double?,
+    /** Where the climb came from when not the file itself: "Strava", "terrain data", or null. */
+    val elevationSource: String? = null,
 )
 
 class CriticalSpeedScreen(
@@ -185,7 +187,7 @@ class AnalyticsRepository(private val db: FitnessDatabase, private val repo: Act
         val hrZones = if (maxHr != null && maxHr != 0.0) decodeHist(m?.hrHist)?.let { h ->
             ZoneTime(Zones.NAMES, Zones.timeInZones(h, maxHr), Zones.FLOORS.map { kotlin.math.round(maxHr * it) })
         } else null
-        return ActivityInsight(classified?.first, paceZones, hrZones, m?.efficiency, m?.efficiencyBasis, m?.decoupling)
+        return ActivityInsight(classified?.first, paceZones, hrZones, m?.efficiency, m?.efficiencyBasis, m?.decoupling, repo.elevationSource(hash))
     }
 
     /** Critical speed now, its pace zones, trend and predictions, and the race predictions from recent best efforts. */

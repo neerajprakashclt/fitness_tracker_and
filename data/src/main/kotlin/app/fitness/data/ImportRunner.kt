@@ -102,8 +102,12 @@ class ImportRunner(private val repo: ActivityRepository, private val resolver: C
                 sameRun = it.sameRun + if (outcome is ImportOutcome.SameRun) 1 else 0,
                 seenBefore = it.seenBefore + if (outcome == null) 1 else 0,
                 failed = if (outcome is ImportOutcome.Failed) it.failed + "$name: ${outcome.reason}" else it.failed,
-                notes = if (outcome is ImportOutcome.SameRun)
-                    it.notes + "$name: same run as an activity already stored (${outcome.kind.name.lowercase()}, ${outcome.offsetSeconds.toLong()} s apart)" else it.notes,
+                notes = when {
+                    outcome is ImportOutcome.SameRun ->
+                        it.notes + "$name: same run as an activity already stored (${outcome.kind.name.lowercase()}, ${outcome.offsetSeconds.toLong()} s apart)"
+                    outcome is ImportOutcome.Imported && outcome.note != null && it.notes.size < 20 -> it.notes + "$name: ${outcome.note}"
+                    else -> it.notes
+                },
             )
         }
     }

@@ -54,6 +54,10 @@ fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?,
     val match by prefs.match.collectAsStateWithLifecycle()
     var confirmRebuild by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
+    var confirmTerrain by remember { mutableStateOf(false) }
+    val terrain by prefs.terrain.collectAsStateWithLifecycle()
+    val missingElevation by remember { app.repository.missingElevationCount() }.collectAsStateWithLifecycle(initialValue = null)
+    val elevationMessage by app.elevationMessage.collectAsStateWithLifecycle()
     var storage by remember { mutableStateOf<StorageUsage?>(null) }
     LaunchedEffect(activityCount) { storage = app.repository.storageUsage(app.databaseFile) }
     val themeId by prefs.theme.collectAsStateWithLifecycle()
@@ -140,6 +144,22 @@ fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?,
             ActionRow("Running-life poster", "Every run you have done as one picture: rings, spiral, routes, cities. Saves as an image.", onPoster)
         }
 
+        SectionHeader("Elevation")
+        ThemedCard {
+            SwitchRow(
+                "Look up elevation for new files", "For files with a GPS track but no altitude (some watches record none). Downloads map tiles of the area from AWS Open Data " +
+                    "(about 100 KB each, kept on the phone); the host learns roughly where you ran, not your route. Only files imported from now on. Off by default.",
+                terrain, prefs::setTerrain,
+            )
+            ThemedDivider()
+            ActionRow("Fill from Strava's activities.csv", "Adds Strava's climb to activities whose files have none. It comes with a Strava export; importing the export's folder does this by itself.", actions.elevationCsv)
+            ThemedDivider()
+            ActionRow(
+                "Look up terrain elevation for ${missingElevation ?: 0} activities",
+                "Existing activities with a GPS track and no elevation, from map tiles. Uses the network; runs in the background.",
+            ) { if ((missingElevation ?: 0) > 0) confirmTerrain = true }
+        }
+
         SectionHeader("Map")
         ThemedCard {
             SwitchRow(
@@ -166,6 +186,21 @@ fun SettingsScreen(app: FitnessApp, actions: ImportActions, activityCount: Int?,
         confirmButton = { QuietButton("Rebuild", { confirmRebuild = false; app.startRebuild() }) },
         dismissButton = { QuietButton("Cancel", { confirmRebuild = false }) },
     )
+    if (confirmTerrain) AlertDialog(
+        onDismissRequest = { confirmTerrain = false },
+        title = { Text("Look up terrain elevation?") },
+        text = { Text("This asks AWS Open Data for the map tiles that cover ${missingElevation ?: 0} activities' tracks, which tells the host roughly where you ran (not your routes). Tiles are kept, so each area is fetched once. It runs in the background and can be stopped.") },
+        confirmButton = { QuietButton("Look up", { confirmTerrain = false; app.startTerrainFill() }) },
+        dismissButton = { QuietButton("Cancel", { confirmTerrain = false }) },
+    )
+    elevationMessage?.let { m ->
+        AlertDialog(
+            onDismissRequest = app::dismissElevationMessage,
+            title = { Text("Strava elevation") },
+            text = { Text(m) },
+            confirmButton = { QuietButton("OK", app::dismissElevationMessage) },
+        )
+    }
     if (confirmForget) AlertDialog(
         onDismissRequest = { confirmForget = false },
         title = { Text("Forget import history?") },

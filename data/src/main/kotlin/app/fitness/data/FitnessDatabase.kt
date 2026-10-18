@@ -72,6 +72,28 @@ data class RouteEntity(
     val polyline: String,
 )
 
+/**
+ * Climb that did not come from the file, kept apart from the activity so a rebuild from the original files can put it back
+ * (the file has none). Deliberately no foreign key: replacing an activity row must not delete these. Strava's CSV gives a total.
+ */
+@Entity(tableName = "elevation_overrides")
+data class ElevationOverrideEntity(
+    @PrimaryKey @ColumnInfo(name = "file_hash") val fileHash: String,
+    @ColumnInfo(name = "elevation_gain") val elevationGain: Double,
+    val source: String,
+)
+
+/** Terrain-derived climb: the gain and the altitude per stream sample (a JSON array), re-applied after a rebuild without another look-up. */
+@Entity(tableName = "terrain_elevation")
+data class TerrainElevationEntity(
+    @PrimaryKey @ColumnInfo(name = "file_hash") val fileHash: String,
+    val provider: String,
+    @ColumnInfo(name = "elevation_gain") val elevationGain: Double,
+    val altitude: String,
+)
+
+data class ElevationGap(@ColumnInfo(name = "file_hash") val fileHash: String, @ColumnInfo(name = "source_file") val sourceFile: String)
+
 /** Append-only log for a future sync: imports, deletes (tombstones) and settings edits. */
 @Entity(tableName = "changes")
 data class ChangeEntity(
@@ -215,14 +237,53 @@ interface ActivityDao {
 
     @Query("SELECT COUNT(*) FROM import_log")
     suspend fun logSize(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putOverrides(rows: List<ElevationOverrideEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putTerrain(rows: List<TerrainElevationEntity>)
+
+    @Query("SELECT * FROM elevation_overrides WHERE file_hash = :hash")
+    suspend fun override(hash: String): ElevationOverrideEntity?
+
+    @Query("SELECT * FROM terrain_elevation WHERE file_hash = :hash")
+    suspend fun terrainRow(hash: String): TerrainElevationEntity?
+
+    @Query("SELECT * FROM elevation_overrides")
+    suspend fun allOverrides(): List<ElevationOverrideEntity>
+
+    @Query("SELECT * FROM terrain_elevation")
+    suspend fun allTerrain(): List<TerrainElevationEntity>
+
+    /** Activities with no climb at all. */
+    @Query("SELECT file_hash, source_file FROM activities WHERE elevation_gain IS NULL")
+    suspend fun withoutElevation(): List<ElevationGap>
+
+    /** Activities with a GPS track and no climb: what a terrain look-up could fill. */
+    @Query(
+        """SELECT a.file_hash, a.source_file FROM activities a JOIN routes r ON r.file_hash = a.file_hash
+           WHERE a.elevation_gain IS NULL AND r.polyline != '[]' ORDER BY a.start_time"""
+    )
+    suspend fun gpsWithoutElevation(): List<ElevationGap>
+
+    @Query(
+        """SELECT COUNT(*) FROM activities a JOIN routes r ON r.file_hash = a.file_hash
+           WHERE a.elevation_gain IS NULL AND r.polyline != '[]'"""
+    )
+    fun observeGpsWithoutElevation(): Flow<Int>
+
+    @Query("UPDATE activities SET elevation_gain = :gain WHERE file_hash = :hash")
+    suspend fun setElevation(hash: String, gain: Double)
 }
 
 @Database(
     entities = [
         ActivityEntity::class, LapEntity::class, RouteEntity::class, ChangeEntity::class, ImportLogEntity::class,
         MetricsEntity::class, BestsEntity::class, DailyLoadEntity::class, SettingEntity::class, GoalEntity::class,
+        ElevationOverrideEntity::class, TerrainElevationEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class FitnessDatabase : RoomDatabase() {
@@ -293,8 +354,19 @@ abstract class FitnessDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 7 added the climb that comes from outside the files (Strava's CSV, terrain data). */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `elevation_overrides` (`file_hash` TEXT NOT NULL, `elevation_gain` REAL NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`file_hash`))")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `terrain_elevation` (`file_hash` TEXT NOT NULL, `provider` TEXT NOT NULL, `elevation_gain` REAL NOT NULL, " +
+                        "`altitude` TEXT NOT NULL, PRIMARY KEY(`file_hash`))"
+                )
+            }
+        }
+
         fun create(context: Context): FitnessDatabase =
             Room.databaseBuilder(context.applicationContext, FitnessDatabase::class.java, "fitness.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
     }
 }

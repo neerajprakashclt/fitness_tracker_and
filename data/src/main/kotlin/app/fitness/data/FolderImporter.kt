@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import app.fitness.core.Importer
 import app.fitness.core.MatchMode
+import app.fitness.core.StravaCsv
 import app.fitness.core.Times
 import app.fitness.core.UntypedSport
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +19,11 @@ import java.time.Instant
 class TreeFile(val docId: String, val uri: Uri, val relativePath: String, val name: String, val size: Long, val modified: Long)
 
 /** What a scan of the folder found, before anything is imported. */
-class FolderScan(val tree: Uri, val files: List<TreeFile>, val byFormat: Map<String, Int>, val seenBefore: Int) {
+class FolderScan(
+    val tree: Uri, val files: List<TreeFile>, val byFormat: Map<String, Int>, val seenBefore: Int,
+    /** Strava's `activities.csv`, when the folder is an export's top folder: it carries the climb some watches never recorded. */
+    val csv: Uri? = null,
+) {
     val newFiles get() = files.size - seenBefore
 }
 
@@ -76,7 +81,9 @@ class FolderImporter(private val resolver: ContentResolver, private val repo: Ac
         val prefix = "$tree|"
         val done = dao.logFor(prefix, prefix.length).filter { it.outcome != "failed" }.associate { it.docKey to it }
         val seen = files.count { f -> done[key(tree, f.docId)]?.let { it.size == f.size && it.modified == f.modified } == true }
-        FolderScan(tree, files, files.groupingBy { Importer.extension(it.name).first }.eachCount().toSortedMap(), seen)
+        val csv = rootChildren.firstOrNull { !isDir(it) && it.name.equals(StravaCsv.NAME, ignoreCase = true) }
+            ?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it.docId) }
+        FolderScan(tree, files, files.groupingBy { Importer.extension(it.name).first }.eachCount().toSortedMap(), seen, csv)
     }
 
     /**
@@ -115,6 +122,20 @@ class FolderImporter(private val resolver: ContentResolver, private val repo: Ac
                     (outcome as? ImportOutcome.Failed)?.reason, Times.format(Instant.now()),
                 )
                 if (pending.size >= 50) flush()
+            }
+            // A Strava export brings its own climb: fill what the files lack, now that every file is in.
+            scan.csv?.let { csv ->
+                try {
+                    val text = withContext(Dispatchers.IO) { resolver.openInputStream(csv)?.use { it.readBytes().decodeToString() } }
+                    if (text != null) {
+                        val n = repo.applyStravaCsv(StravaCsv.elevationGains(text))
+                        if (n > 0) runner.note("Elevation from Strava's activities.csv added to $n activities")
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    runner.note("Could not read activities.csv: ${e.message}")
+                }
             }
             runner.endRun()
         } catch (e: kotlinx.coroutines.CancellationException) {

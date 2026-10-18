@@ -34,4 +34,8 @@ class ParsedActivity(
     /** Only streams with data are present; each array is as long as `time`. */
     val streams: Map<String, DoubleArray>,
     val laps: List<ParsedLap>,
-)
+) {
+    /** The same activity with climb from outside the file: an altitude per sample (or none) and the total gain. */
+    fun withElevation(altitude: DoubleArray?, gain: Double?): ParsedActivity =
+        ParsedActivity(sport, startTime, duration, distance, gain, device, if (altitude != null) streams + ("altitude" to altitude) else streams, laps)
+}
